@@ -1,0 +1,60 @@
+/* === css/base.css === */
+/* Globals & layout */
+
+/* Kiosk-friendly defaults */
+* {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Variables */
+:root{
+  --ui-font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+             "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+
+  --topbar-h: 56px;    /* toolbar height */
+  --accent: #2a7;      /* ring/accent (fallback if JS color pick fails) */
+  --ring-w: 2px;       /* focus ring width for cards */
+}
+
+html, body { font-family: var(--ui-font); }
+
+/* Fullscreen background (kept from your original) */
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+body {
+  background: #000 url("../assets/images/background.jpg")
+             center center / cover no-repeat fixed;
+}
+
+/* Main scrolling area below the topbar */
+.content{
+  box-sizing: border-box;
+  margin-top: var(--topbar-h);
+  height: calc(100vh - var(--topbar-h));
+  overflow: auto;
+  padding: 5px;
+  will-change: scroll-position;
+
+  /* Hide scrollbars but keep scrollability */
+  -ms-overflow-style: none;       /* IE/old Edge */
+  scrollbar-width: none;          /* Firefox */
+}
+.content::-webkit-scrollbar {     /* Chrome/Edge/Safari/WebView2/WebKit */
+  width: 0; height: 0; background: transparent;
+}
+.content.hidebar {
+  padding-right: 14px;  /* space for a hidden bar */
+  margin-right: -14px;  /* pull content back to the edge */
+}
+
+/* Optional legacy page spacer (kept if you still use .page) */
+.page { position: relative; z-index: 1; padding-top: 72px; }
+
+/* Helpers */
+.mdl2 { font-family: "Segoe MDL2 Assets","Segoe UI Symbol",sans-serif; }
+.monoicon { font-family: "Segoe UI Symbol","Segoe UI",system-ui,sans-serif; }

@@ -1,0 +1,64 @@
+/* === css/cards.css === */
+/* Grid + cards (with accent ring & shine preserved) */
+
+/* 5-column grid */
+.grid{
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  content-visibility: auto;
+  contain: content;
+}
+
+/* Card container */
+.card{
+  position: relative;
+  cursor: pointer;
+  color: #fff;
+
+  /* shine + depth (original) */
+  box-shadow:
+    0 0 0 0 var(--accent),           /* hover ring starts at 0 */
+    0 4px 10px rgba(0, 0, 0, .35);
+
+  transition: box-shadow .15s ease, transform .08s ease;
+  background: rgba(28, 28, 28, 0.92);
+  border-radius: 10px;
+}
+.card, .card .title, .card .desc { color: #fff; }
+
+/* Thumbnail */
+.card img.thumb{
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+}
+
+/* Hover/focus “ring” & lift */
+.card:hover,
+.card.gp-focus,
+.card:focus-visible{
+  box-shadow:
+    0 0 0 var(--ring-w) var(--accent), /* ring appears */
+    0 8px 20px rgba(0, 0, 0, .55);
+  transform: translateY(-1px);
+  filter: brightness(1.20);
+}
+
+/* Keyboard focus parity */
+.card:focus-visible{ outline: none; }
+
+/* Body/text */
+.card .body{ padding: 12px; }
+.card .title{ margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+.card .desc{
+  font-size: 13px; opacity: .9; line-height: 1.35;
+  max-height: 2.8em; overflow: hidden;
+}
+
+/* Per-card actions area (not the topbar actions) */
+.card .actions{ margin-top: 10px; text-align: right; }
