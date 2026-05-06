@@ -6,44 +6,18 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 	"unsafe"
+
+	lgx "launcher/internal/logx" // adjust if needed
 
 	"golang.org/x/sys/windows"
 )
 
-// ===== Win32 Bluetooth interop (bthprops.cpl) =====
+// Uses shared procs from bluetooth_state_windows.go via initBluetoothProcs()
 
-var (
-	bthDLL                  = windows.NewLazySystemDLL("bthprops.cpl")
-	procFindFirstRadio      = bthDLL.NewProc("BluetoothFindFirstRadio")
-	procFindRadioClose      = bthDLL.NewProc("BluetoothFindRadioClose")
-	procFindFirstDevice     = bthDLL.NewProc("BluetoothFindFirstDevice")
-	procFindNextDevice      = bthDLL.NewProc("BluetoothFindNextDevice")
-	procFindDeviceClose     = bthDLL.NewProc("BluetoothFindDeviceClose")
-	procAuthEx              = bthDLL.NewProc("BluetoothAuthenticateDeviceEx")
-	procAuthPIN             = bthDLL.NewProc("BluetoothAuthenticateDevice")
-	procUpdateDevice        = bthDLL.NewProc("BluetoothUpdateDeviceRecord")
-	procIsConnectable       = bthDLL.NewProc("BluetoothIsConnectable")
-	procFindFirstRadioReady bool
-)
+type BLUETOOTH_FIND_RADIO_PARAMS struct{ DwSize uint32 }
 
-func loadBth() bool {
-	if err := bthDLL.Load(); err != nil {
-		return false
-	}
-	// All procs are lazy; just check one to confirm presence.
-	if err := procFindFirstRadio.Find(); err == nil {
-		procFindFirstRadioReady = true
-		return true
-	}
-	return false
-}
-
-type BLUETOOTH_FIND_RADIO_PARAMS struct {
-	DwSize uint32
-}
-
-// BOOL is 4 bytes; HANDLE 8 bytes on x64
 type BLUETOOTH_DEVICE_SEARCH_PARAMS struct {
 	DwSize               uint32
 	FReturnAuthenticated int32
@@ -57,19 +31,11 @@ type BLUETOOTH_DEVICE_SEARCH_PARAMS struct {
 }
 
 type SYSTEMTIME struct {
-	Year         uint16
-	Month        uint16
-	DayOfWeek    uint16
-	Day          uint16
-	Hour         uint16
-	Minute       uint16
-	Second       uint16
-	Milliseconds uint16
+	Year, Month, DayOfWeek, Day        uint16
+	Hour, Minute, Second, Milliseconds uint16
 }
 
-type BLUETOOTH_ADDRESS struct {
-	Addr uint64 // lower 48 bits used (BDADDR in LE)
-}
+type BLUETOOTH_ADDRESS struct{ Addr uint64 }
 
 type BLUETOOTH_DEVICE_INFO struct {
 	DwSize          uint32
@@ -85,6 +51,10 @@ type BLUETOOTH_DEVICE_INFO struct {
 
 const (
 	authMITMNotRequired = 0x00
+
+	rcOK               = 0
+	rcNotAuthenticated = 1244 // ERROR_NOT_AUTHENTICATED
+	rcGenFailure       = 31   // ERROR_GEN_FAILURE
 )
 
 func utf16ToString(buf []uint16) string {
@@ -95,51 +65,45 @@ func utf16ToString(buf []uint16) string {
 	return windows.UTF16ToString(buf[:n])
 }
 
-// ===== Auto-pair supervisor =====
+func bdaddrString(a BLUETOOTH_ADDRESS) string {
+	v := a.Addr & 0xFFFFFFFFFFFF
+	return fmt.Sprintf("%02X:%02X:%02X:%02X:%02X:%02X",
+		byte(v>>40), byte(v>>32), byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+}
+
+// ===== Supervisor =====
 
 var (
 	apMu     sync.Mutex
 	apOn     bool
 	apStopCh chan struct{}
 	apWlist  []string
-	apStatus = "off" // "off" | "running" | "error"
+	apStatus = "off"
 )
 
-func AutoPairRunning() bool {
-	apMu.Lock()
-	defer apMu.Unlock()
-	return apOn
-}
+func AutoPairRunning() bool  { apMu.Lock(); defer apMu.Unlock(); return apOn }
+func AutoPairStatus() string { apMu.Lock(); defer apMu.Unlock(); return apStatus }
 
-func AutoPairStatus() string {
-	apMu.Lock()
-	defer apMu.Unlock()
-	return apStatus
-}
-
-// StartAutoPair starts a background scan/pair loop.
-// whitelist: comma-separated substrings (lowercased) to match device names; empty = match all.
 func AutoPairStart(whitelist string) error {
 	apMu.Lock()
 	defer apMu.Unlock()
 	if apOn {
 		return nil
 	}
-	if !loadBth() {
+	if !initBluetoothProcs() {
 		apStatus = "error"
 		return fmt.Errorf("bluetooth support not available")
 	}
-
 	apWlist = nil
 	for _, s := range strings.Split(strings.ToLower(whitelist), ",") {
-		s = strings.TrimSpace(s)
-		if s != "" {
-			apWlist = append(apWlist, s)
+		if t := strings.TrimSpace(s); t != "" {
+			apWlist = append(apWlist, t)
 		}
 	}
 	apStopCh = make(chan struct{})
 	apOn = true
 	apStatus = "running"
+	lgx.Infof("[btpair] start: whitelist=%v", apWlist)
 	go apLoop(apStopCh)
 	return nil
 }
@@ -154,6 +118,7 @@ func AutoPairStop() {
 	apOn = false
 	apStatus = "off"
 	apMu.Unlock()
+	lgx.Infof("[btpair] stop")
 }
 
 func nameMatches(name string) bool {
@@ -170,22 +135,94 @@ func nameMatches(name string) bool {
 }
 
 func apLoop(stop <-chan struct{}) {
-	// Pick first radio (primary)
-	var hRadio windows.Handle
-	hFindRadio := windows.Handle(0)
-	{
-		var frp BLUETOOTH_FIND_RADIO_PARAMS
-		frp.DwSize = uint32(unsafe.Sizeof(frp))
-		r0, _, _ := procFindFirstRadio.Call(uintptr(unsafe.Pointer(&frp)), uintptr(unsafe.Pointer(&hRadio)))
-		if r0 == 0 {
-			// No radio → nothing to do; leave status as running but loop will do nothing.
-		} else {
-			hFindRadio = windows.Handle(r0)
-			defer procFindRadioClose.Call(uintptr(hFindRadio))
-		}
+	radios := enumerateRadios()
+	if len(radios) == 0 {
+		lgx.Warnf("[btpair] no radios found; scanning anyway (stack may come up later)")
 	}
 
-	// Simple outer loop: keep issuing short inquiries until stopped.
+	inqTimeout := byte(8) // ~10.2s inquiry
+	tickerGap := 1000 * time.Millisecond
+
+	for {
+		select {
+		case <-stop:
+			for _, h := range radios {
+				windows.CloseHandle(h)
+			}
+			return
+		default:
+		}
+
+		for _, hRadio := range append([]windows.Handle{}, radios...) {
+			scanOnce(stop, hRadio, inqTimeout)
+			select {
+			case <-stop:
+				for _, h := range radios {
+					windows.CloseHandle(h)
+				}
+				return
+			default:
+			}
+		}
+
+		time.Sleep(tickerGap)
+	}
+}
+
+func enumerateRadios() []windows.Handle {
+	found := make([]windows.Handle, 0, 2)
+
+	var frp BLUETOOTH_FIND_RADIO_PARAMS
+	frp.DwSize = uint32(unsafe.Sizeof(frp))
+
+	var hRadio windows.Handle
+	r0, _, _ := procFindFirstRadio.Call(uintptr(unsafe.Pointer(&frp)), uintptr(unsafe.Pointer(&hRadio)))
+	if r0 == 0 {
+		lgx.Debugf("[btpair] radios=0 (FindFirstRadio returned 0)")
+		return found
+	}
+	hFind := windows.Handle(r0)
+	defer procFindRadioClose.Call(uintptr(hFind))
+
+	if hRadio != 0 {
+		found = append(found, hRadio)
+	}
+
+	for {
+		var next windows.Handle
+		rn, _, _ := procFindNextRadio.Call(uintptr(hFind), uintptr(unsafe.Pointer(&next)))
+		if rn == 0 {
+			break
+		}
+		if next != 0 {
+			found = append(found, next)
+		}
+	}
+	lgx.Debugf("[btpair] radios=%d", len(found))
+	return found
+}
+
+func scanOnce(stop <-chan struct{}, hRadio windows.Handle, timeout byte) {
+	var sp BLUETOOTH_DEVICE_SEARCH_PARAMS
+	sp.DwSize = uint32(unsafe.Sizeof(sp))
+	sp.FReturnAuthenticated = 0
+	sp.FReturnRemembered = 1
+	sp.FReturnUnknown = 1
+	sp.FReturnConnected = 0
+	sp.FIssueInquiry = 1
+	sp.CTimeoutMultiplier = timeout
+	sp.HRadio = hRadio
+
+	var di BLUETOOTH_DEVICE_INFO
+	di.DwSize = uint32(unsafe.Sizeof(di))
+
+	hFind, _, _ := procFindFirstDevice.Call(uintptr(unsafe.Pointer(&sp)), uintptr(unsafe.Pointer(&di)))
+	if hFind == 0 {
+		return
+	}
+	hFindDev := windows.Handle(hFind)
+	defer procFindDeviceClose.Call(uintptr(hFindDev))
+
 	for {
 		select {
 		case <-stop:
@@ -193,69 +230,64 @@ func apLoop(stop <-chan struct{}) {
 		default:
 		}
 
-		// If we have no radio, just sleep a bit via a short inquiry that will bail
-		// when procFindFirstDevice fails with HANDLE==0.
-		var sp BLUETOOTH_DEVICE_SEARCH_PARAMS
-		sp.DwSize = uint32(unsafe.Sizeof(sp))
-		sp.FReturnAuthenticated = 0
-		sp.FReturnRemembered = 0
-		sp.FReturnUnknown = 1 // we want new/unpaired
-		sp.FReturnConnected = 0
-		sp.FIssueInquiry = 1      // actively scan
-		sp.CTimeoutMultiplier = 4 // ~5.1s
-		sp.HRadio = hRadio
+		name := utf16ToString(di.SzName[:])
+		if name != "" && nameMatches(name) {
+			addr := bdaddrString(di.Address)
+			lgx.Debugf("[btpair] seen name=%q addr=%s remembered=%d authed=%d", name, addr, di.FRemembered, di.FAuthenticated)
 
-		var di BLUETOOTH_DEVICE_INFO
-		di.DwSize = uint32(unsafe.Sizeof(di))
-
-		hFind, _, _ := procFindFirstDevice.Call(
-			uintptr(unsafe.Pointer(&sp)),
-			uintptr(unsafe.Pointer(&di)),
-		)
-		if hFind != 0 {
-			hFindDev := windows.Handle(hFind)
-			// iterate all results for this inquiry
-			for {
-				// Stop ASAP if requested
-				select {
-				case <-stop:
-					procFindDeviceClose.Call(uintptr(hFindDev))
-					return
-				default:
+			if di.FRemembered != 0 && di.FAuthenticated == 0 {
+				if removeDevice(&di.Address) {
+					lgx.Infof("[btpair] removed stale remember for %q (%s); will re-scan next loop", name, addr)
+				} else {
+					lgx.Warnf("[btpair] failed to remove stale device %q (%s)", name, addr)
 				}
+			} else if di.FAuthenticated == 0 {
+				ok := false
 
-				name := utf16ToString(di.SzName[:])
-
-				if name != "" && nameMatches(name) && di.FAuthenticated == 0 {
-					// Try to pair: 1) SSP/no-PIN, 2) fallback to PIN "0000"
-					ok := pairTryAuthEx(hRadio, &di) || pairTryPIN(hRadio, &di, "0000")
-					if ok {
-						// Update record (best effort)
-						procUpdateDevice.Call(uintptr(unsafe.Pointer(&di)))
+				// 1) AuthEx (retry once if 1244-ish race)
+				rc := pairAuthExRC(&di, hRadio)
+				if rc == rcOK {
+					ok = true
+				} else {
+					lgx.Debugf("[btpair] AuthEx failed rc=%d (retry)", rc)
+					time.Sleep(500 * time.Millisecond)
+					rc2 := pairAuthExRC(&di, hRadio)
+					if rc2 == rcOK {
+						ok = true
+					} else {
+						// 2) PINs (0000 -> 1234)
+						lgx.Debugf("[btpair] trying PINs after AuthEx rc=%d", rc2)
+						ok = pairPINRC(&di, hRadio, "0000") == rcOK ||
+							pairPINRC(&di, hRadio, "1234") == rcOK
 					}
 				}
 
-				// Next device
-				rn, _, _ := procFindNextDevice.Call(uintptr(hFindDev), uintptr(unsafe.Pointer(&di)))
-				if rn == 0 {
-					break
+				if ok {
+					lgx.Infof("[btpair] paired %q (%s)", name, addr)
+					procUpdateDevice.Call(uintptr(unsafe.Pointer(&di)))
+					time.Sleep(750 * time.Millisecond)
+				} else {
+					lgx.Warnf("[btpair] pair failed for %q (%s)", name, addr)
 				}
 			}
-			procFindDeviceClose.Call(uintptr(hFindDev))
 		}
 
-		// Small gap between scans; ~1s
-		select {
-		case <-stop:
-			return
-		default:
+		di.DwSize = uint32(unsafe.Sizeof(di))
+		rn, _, _ := procFindNextDevice.Call(uintptr(hFindDev), uintptr(unsafe.Pointer(&di)))
+		if rn == 0 {
+			break
 		}
-		windows.SleepEx(1000, false)
 	}
 }
 
-func pairTryAuthEx(hRadio windows.Handle, di *BLUETOOTH_DEVICE_INFO) bool {
-	// BluetoothAuthenticateDeviceEx(hwndParent=NULL, hRadio, di, pOobData=NULL, MITMNotRequired)
+func removeDevice(addr *BLUETOOTH_ADDRESS) bool {
+	r, _, _ := procRemoveDevice.Call(uintptr(unsafe.Pointer(addr)))
+	return r == 0
+}
+
+// Helpers that return Win32 rc so we can branch on 1244/31 explicitly.
+
+func pairAuthExRC(di *BLUETOOTH_DEVICE_INFO, hRadio windows.Handle) int {
 	r, _, _ := procAuthEx.Call(
 		0,
 		uintptr(hRadio),
@@ -263,13 +295,13 @@ func pairTryAuthEx(hRadio windows.Handle, di *BLUETOOTH_DEVICE_INFO) bool {
 		0,
 		uintptr(uint32(authMITMNotRequired)),
 	)
-	return r == 0 // ERROR_SUCCESS
+	return int(r)
 }
 
-func pairTryPIN(hRadio windows.Handle, di *BLUETOOTH_DEVICE_INFO, pin string) bool {
+func pairPINRC(di *BLUETOOTH_DEVICE_INFO, hRadio windows.Handle, pin string) int {
 	pin16, err := windows.UTF16FromString(pin)
-	if err != nil {
-		return false
+	if err != nil || len(pin16) == 0 {
+		return rcGenFailure
 	}
 	r, _, _ := procAuthPIN.Call(
 		0,
@@ -278,5 +310,5 @@ func pairTryPIN(hRadio windows.Handle, di *BLUETOOTH_DEVICE_INFO, pin string) bo
 		uintptr(unsafe.Pointer(&pin16[0])),
 		uintptr(uint32(len(pin))),
 	)
-	return r == 0
+	return int(r)
 }

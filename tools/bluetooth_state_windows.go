@@ -18,11 +18,28 @@ type bluetoothFindRadioParams struct {
 	DwSize uint32
 }
 
-// We only need enumeration & simple state checks
+// ---- Win32 Bluetooth (bthprops.cpl) interop ----
+
+// Prefer bthprops.cpl; on some systems functions also exist in BluetoothApis.dll
 var (
-	// Prefer bthprops.cpl; on some systems functions also exist in BluetoothApis.dll
-	procFindNextRadio         *windows.LazyProc
-	procIsDiscoverable        *windows.LazyProc
+	bthMainDLL = windows.NewLazySystemDLL("bthprops.cpl")
+	bthAltDLL  = windows.NewLazySystemDLL("BluetoothApis.dll")
+
+	// All procs are declared here but bound inside initBluetoothProcs()
+	procFindFirstRadio *windows.LazyProc
+	procFindNextRadio  *windows.LazyProc
+	procFindRadioClose *windows.LazyProc
+	procIsConnectable  *windows.LazyProc
+	procIsDiscoverable *windows.LazyProc // optional
+
+	procFindFirstDevice *windows.LazyProc
+	procFindNextDevice  *windows.LazyProc
+	procFindDeviceClose *windows.LazyProc
+	procAuthEx          *windows.LazyProc
+	procAuthPIN         *windows.LazyProc
+	procUpdateDevice    *windows.LazyProc
+	procRemoveDevice    *windows.LazyProc
+
 	bluetoothProcsInitialized bool
 )
 
@@ -30,7 +47,7 @@ func initBluetoothProcs() bool {
 	if bluetoothProcsInitialized {
 		return true
 	}
-	tryDLL := func(d *windows.LazyDLL) bool {
+	bind := func(d *windows.LazyDLL) bool {
 		if err := d.Load(); err != nil {
 			return false
 		}
@@ -38,19 +55,47 @@ func initBluetoothProcs() bool {
 		fn := d.NewProc("BluetoothFindNextRadio")
 		fc := d.NewProc("BluetoothFindRadioClose")
 		ic := d.NewProc("BluetoothIsConnectable")
+		// Optional on some builds:
 		id := d.NewProc("BluetoothIsDiscoverable")
-		if ff.Find() == nil && fn.Find() == nil && fc.Find() == nil && ic.Find() == nil && id.Find() == nil {
+
+		fd1 := d.NewProc("BluetoothFindFirstDevice")
+		fd2 := d.NewProc("BluetoothFindNextDevice")
+		fdC := d.NewProc("BluetoothFindDeviceClose")
+		ax := d.NewProc("BluetoothAuthenticateDeviceEx")
+		ap := d.NewProc("BluetoothAuthenticateDevice")
+		ud := d.NewProc("BluetoothUpdateDeviceRecord")
+		rd := d.NewProc("BluetoothRemoveDevice")
+
+		// Require the core radios + device enumeration; AuthEx OR PIN is acceptable.
+		if ff.Find() == nil && fn.Find() == nil && fc.Find() == nil &&
+			ic.Find() == nil &&
+			fd1.Find() == nil && fd2.Find() == nil && fdC.Find() == nil &&
+			(ax.Find() == nil || ap.Find() == nil) && rd.Find() == nil {
+
 			procFindFirstRadio, procFindNextRadio, procFindRadioClose = ff, fn, fc
-			procIsConnectable, procIsDiscoverable = ic, id
+			procIsConnectable = ic
+			// id may fail Find(); that’s OK—treat as optional
+			if id.Find() == nil {
+				procIsDiscoverable = id
+			} else {
+				procIsDiscoverable = nil
+			}
+
+			procFindFirstDevice, procFindNextDevice, procFindDeviceClose = fd1, fd2, fdC
+			procAuthEx, procAuthPIN = ax, ap
+			procUpdateDevice, procRemoveDevice = ud, rd
+
 			bluetoothProcsInitialized = true
 			return true
 		}
 		return false
 	}
-	if tryDLL(bthDLL) {
+	// try main, then alt
+	if bind(bthMainDLL) {
 		return true
 	}
-	return tryDLL(altDLL)
+
+	return bind(bthAltDLL)
 }
 
 // ---- Service fallback ----

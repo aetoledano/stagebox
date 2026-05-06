@@ -6,6 +6,7 @@ import (
 	"launcher/tools"
 	"log"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,17 +18,23 @@ import (
 
 // App struct
 type App struct {
-	ctx      context.Context
-	config   *config.Config
-	games    map[uuid.UUID]*games.GameData
-	pad      *tools.XInputBridge
-	btStatus string
+	ctx                context.Context
+	config             *config.Config
+	games              map[uuid.UUID]*games.GameData
+	gamesMu            sync.RWMutex
+	thumbnailDir       string
+	thumbnailURLPrefix string
+	pad                *tools.XInputBridge
+	btStatus           string
 }
 
 // NewApp creates a new App application struct
-func NewApp(config *config.Config) *App {
+func NewApp(config *config.Config, thumbnailDir string, thumbnailURLPrefix string) *App {
 	return &App{
-		config: config,
+		config:             config,
+		games:              map[uuid.UUID]*games.GameData{},
+		thumbnailDir:       thumbnailDir,
+		thumbnailURLPrefix: thumbnailURLPrefix,
 	}
 }
 
@@ -79,11 +86,10 @@ func (a *App) Shutdown() {
 		a.pad.Stop()
 	}
 
+	exec.Command("shutdown", "-s", "-t", "0").Start()
 	runtime.Quit(a.ctx)
 
 	log.Println("shutting down...")
-
-	exec.Command("shutdown", "-s", "-t", "0").Start()
 }
 
 func (a *App) Restart() {
@@ -91,23 +97,76 @@ func (a *App) Restart() {
 		a.pad.Stop()
 	}
 
+	exec.Command("shutdown", "-r", "-t", "0").Start()
 	runtime.Quit(a.ctx)
 
 	log.Println("restarting...")
-
-	exec.Command("shutdown", "-r", "-t", "0").Start()
 }
 
 func (a *App) LoadGames() map[uuid.UUID]*games.GameData {
 	log.Println("Loading games from:", a.config.GamesRoot)
 
-	a.games = games.LoadGames(a.config.GamesRoot)
+	a.gamesMu.Lock()
+	a.games = map[uuid.UUID]*games.GameData{}
+	a.gamesMu.Unlock()
+
+	var progressMu sync.Mutex
+	processed := 0
+	totalDirs := 0
+	emitProgress := func(loaded int, total int) {
+		progressMu.Lock()
+		processed = loaded
+		totalDirs = total
+		progressMu.Unlock()
+
+		runtime.EventsEmit(a.ctx, "games:loading", map[string]any{
+			"loading": loaded < total,
+			"loaded":  loaded,
+			"total":   total,
+		})
+	}
+
+	loaded := games.LoadGamesWithOptions(a.config.GamesRoot, games.LoadOptions{
+		ThumbnailDir:       a.thumbnailDir,
+		ThumbnailURLPrefix: a.thumbnailURLPrefix,
+		Workers:            games.DefaultLoadWorkers,
+		OnGame: func(g *games.GameData) {
+			a.gamesMu.Lock()
+			a.games[g.ID] = g
+			a.gamesMu.Unlock()
+
+			runtime.EventsEmit(a.ctx, "game:loaded", g)
+		},
+		OnProgress: emitProgress,
+		OnError: func(gamePath string, err error) {
+			runtime.EventsEmit(a.ctx, "game:load-error", map[string]any{
+				"path":  gamePath,
+				"error": err.Error(),
+			})
+		},
+	})
+
+	a.gamesMu.Lock()
+	a.games = loaded
+	a.gamesMu.Unlock()
+
+	progressMu.Lock()
+	finalLoaded := processed
+	finalTotal := totalDirs
+	progressMu.Unlock()
+	runtime.EventsEmit(a.ctx, "games:loading", map[string]any{
+		"loading": false,
+		"loaded":  finalLoaded,
+		"total":   finalTotal,
+	})
 
 	return a.games
 }
 
 func (a *App) Launch(id uuid.UUID) {
+	a.gamesMu.RLock()
 	game := a.games[id]
+	a.gamesMu.RUnlock()
 	if game == nil {
 		log.Printf("Game with ID %s not found", id)
 		return
@@ -199,13 +258,17 @@ func (a *App) watchBluetooth() {
 	}
 }
 
+// in app.go
 func (a *App) AutoPairStart(whitelist string) error {
+	lgx.Infof("AutoPairStart called with whitelist=%q", whitelist)
 	err := tools.AutoPairStart(whitelist)
-	if err == nil {
-		// optional: ping UI
-		runtime.EventsEmit(a.ctx, "status:update", map[string]any{"autopair": true})
+	if err != nil {
+		lgx.Errorf("AutoPairStart error: %v", err)
+		return err
 	}
-	return err
+	runtime.EventsEmit(a.ctx, "status:update", map[string]any{"autopair": true})
+	lgx.Infof("AutoPairStart OK (loop running)")
+	return nil
 }
 
 func (a *App) AutoPairStop() {

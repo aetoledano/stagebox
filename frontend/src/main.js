@@ -1,8 +1,9 @@
 import "./css/base.css";
 import "./css/cards.css";
 import "./css/topbar.css";
-import { Shutdown, Restart, LoadGames, Launch, Explorer, AutoPairStart, AutoPairStop, AutoPairRunning } from "/wailsjs/go/main/App.js";
-import { controllerInit } from "./controller.js";
+import { Shutdown, Restart, LoadGames, Launch, Explorer, AutoPairStart, AutoPairStop, AutoPairRunning, Info, Warn, Error } from "/wailsjs/go/main/App.js";
+import { EventsOn } from "/wailsjs/runtime";
+import { controllerInit, controllerRefresh } from "./controller.js";
 import { initBTIndicator, refreshBTIndicator } from "./bluetooth.js"; 
 import { startClock } from "./clock.js";
 
@@ -34,13 +35,53 @@ document.querySelector("#btn-auto-bt-pair")?.addEventListener("click", async () 
 
 
 const container = document.querySelector(".content .scrollport") || document.querySelector(".content");
+const grid = document.createElement("div");
+grid.className = "grid";
+container.replaceChildren(grid);
 
-function renderGrid(games) {
-  const grid = document.createElement("div");
-  grid.className = "grid";
+const cardsByID = new Map();
 
-  games.forEach((g) => {
-    const card = document.createElement("div");
+function normalizeGame(g, fallbackID = "") {
+  return {
+    id: g.id || g.ID || fallbackID,
+    name: g.name ?? g.Name ?? "",
+    description: g.description ?? g.Description ?? "",
+    thumbnailUrl: g.thumbnailUrl ?? g.ThumbnailURL ?? "",
+    imageHash: g.imageHash ?? g.ImageHash ?? "",
+  };
+}
+
+function setLoadStatus(payload) {
+  const el = document.getElementById("game-load-status");
+  if (!el) return;
+
+  const loading = !!payload?.loading;
+  el.classList.toggle("idle", false);
+  el.classList.toggle("loading", loading);
+  el.classList.toggle("ready", !loading);
+  if (payload && Number.isFinite(payload.loaded) && Number.isFinite(payload.total) && payload.total > 0) {
+    el.title = loading
+      ? `Loading games ${payload.loaded}/${payload.total}`
+      : `Games ready ${payload.loaded}/${payload.total}`;
+  } else {
+    el.title = loading ? "Loading games" : "Games ready";
+  }
+}
+
+function insertSorted(card) {
+  const name = (card.dataset.name || "").toLocaleLowerCase();
+  const cards = [...grid.children];
+  const before = cards.find((el) => (el.dataset.name || "").toLocaleLowerCase() > name);
+  grid.insertBefore(card, before || null);
+}
+
+function upsertCard(rawGame) {
+  const g = normalizeGame(rawGame);
+  if (!g.id) return;
+
+  let card = cardsByID.get(g.id);
+  if (!card) {
+    card = document.createElement("div");
     card.className = "card";
     card.dataset.id = g.id;
     card.setAttribute("role", "button");
@@ -51,7 +92,6 @@ function renderGrid(games) {
     img.loading = "lazy";
     img.decoding = "async";
     img.fetchPriority = "low";
-    img.src = g.b64 ? `data:image/*;base64,${g.b64}` : (g.image || "");
     img.alt = "";
 
     const body = document.createElement("div");
@@ -59,12 +99,10 @@ function renderGrid(games) {
 
     const title = document.createElement("div");
     title.className = "title";
-    title.textContent = g.name || "";
 
     body.append(title);
     card.append(img, body);
 
-    // Mouse/keyboard activation still works
     card.addEventListener("click", () => Launch(g.id).catch(console.error));
     card.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -73,39 +111,52 @@ function renderGrid(games) {
       }
     });
 
-    grid.appendChild(card);
-  });
+    cardsByID.set(g.id, card);
+  }
 
-  container.replaceChildren(grid);
+  card.dataset.name = g.name || "";
+  card.querySelector(".title").textContent = g.name || "";
+  const img = card.querySelector("img.thumb");
+  img.src = g.thumbnailUrl || "";
+  img.dataset.hash = g.imageHash || "";
+
+  insertSorted(card);
+  controllerRefresh();
 }
+
+function mergeReturnedGames(raw) {
+  const list = Array.isArray(raw)
+    ? raw.map((g) => normalizeGame(g))
+    : Object.entries(raw || {}).map(([k, g]) => normalizeGame(g, k));
+  list.forEach(upsertCard);
+}
+
+controllerInit({
+  getCards: () => [...document.querySelectorAll(".content .grid .card, .content .scrollport .grid .card")],
+  getBarButtons: () => [...document.querySelectorAll(".topbar .btn")],
+  onActivateCard: (card) => {
+    const id = card?.dataset?.id;
+    if (id) Launch(id).catch(console.error);
+  },
+});
+
+EventsOn("game:loaded", upsertCard);
+EventsOn("games:loading", setLoadStatus);
+EventsOn("game:load-error", (payload) => {
+  console.warn("Game load failed:", payload);
+});
 
 async function loadAndShow() {
-  const raw = await LoadGames().catch(() => ({}));
-  const list = Array.isArray(raw)
-    ? raw
-    : Object.entries(raw).map(([k, g]) => ({
-      id: g.id || k,
-      name: g.name ?? g.Name,
-      description: g.description ?? g.Description,
-      b64: g.b64 ?? g.ImageB64,
-      image: g.image ?? g.Image,
-    }));
-  list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  renderGrid(list);
-
-  // NOW init controller (after grid is in the DOM)
-  controllerInit({
-    getCards: () => [...document.querySelectorAll(".content .grid .card, .content .scrollport .grid .card")],
-    getBarButtons: () => [...document.querySelectorAll(".topbar .btn")],
-    onActivateCard: (card) => {
-      const id = card?.dataset?.id;
-      if (id) Launch(id).catch(console.error);
-    },
+  setLoadStatus({ loading: true });
+  const raw = await LoadGames().catch((err) => {
+    console.error("LoadGames failed:", err);
+    setLoadStatus({ loading: false, loaded: 0, total: 0 });
+    return {};
   });
-
-  initBTIndicator();
+  mergeReturnedGames(raw);
 }
 
+initBTIndicator();
 loadAndShow();
 startClock("America/Mexico_City");
 

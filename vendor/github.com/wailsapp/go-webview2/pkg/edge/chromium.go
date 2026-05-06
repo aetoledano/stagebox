@@ -82,7 +82,7 @@ type Chromium struct {
 	globalPermission *CoreWebView2PermissionState
 
 	// Callbacks
-	MessageCallback                          func(string)
+	MessageCallback                          func(message string, sender *ICoreWebView2, args *ICoreWebView2WebMessageReceivedEventArgs)
 	MessageWithAdditionalObjectsCallback     func(message string, sender *ICoreWebView2, args *ICoreWebView2WebMessageReceivedEventArgs)
 	WebResourceRequestedCallback             func(request *ICoreWebView2WebResourceRequest, args *ICoreWebView2WebResourceRequestedEventArgs)
 	NavigationCompletedCallback              func(sender *ICoreWebView2, args *ICoreWebView2NavigationCompletedEventArgs)
@@ -227,16 +227,16 @@ func (e *Chromium) SetPadding(padding Rect) {
 }
 
 func (e *Chromium) ResizeWithBounds(bounds *Rect) {
-    if e.hwnd == 0 {
-        return
-    }
+	if e.hwnd == 0 {
+		return
+	}
 
-    bounds.Top += e.padding.Top
-    bounds.Bottom -= e.padding.Bottom
-    bounds.Left += e.padding.Left
-    bounds.Right -= e.padding.Right
+	bounds.Top += e.padding.Top
+	bounds.Bottom -= e.padding.Bottom
+	bounds.Left += e.padding.Left
+	bounds.Right -= e.padding.Right
 
-    e.SetSize(*bounds)
+	e.SetSize(*bounds)
 }
 
 func (e *Chromium) Resize() {
@@ -348,11 +348,6 @@ func (e *Chromium) CreateCoreWebView2ControllerCompleted(res uintptr, controller
 		if err := controller3.PutShouldDetectMonitorScaleChanges(false); err != nil {
 			e.errorCallback(err)
 		}
-
-		// Set a fixed rasterization scale for better performance
-		if err := controller3.PutRasterizationScale(1.0); err != nil {
-			e.errorCallback(err)
-		}
 	}
 	var token _EventRegistrationToken
 	e.webview, err = e.controller.GetCoreWebView2()
@@ -419,10 +414,10 @@ func (e *Chromium) MessageReceived(sender *ICoreWebView2, args *ICoreWebView2Web
 			defer obj.Release()
 			e.MessageWithAdditionalObjectsCallback(message, sender, args)
 		} else if e.MessageCallback != nil {
-			e.MessageCallback(message)
+			e.MessageCallback(message, sender, args)
 		}
 	} else if e.MessageCallback != nil {
-		e.MessageCallback(message)
+		e.MessageCallback(message, sender, args)
 	}
 
 	err = sender.PostWebMessageAsString(message)

@@ -49,6 +49,10 @@
 
 /* Centered title */
 .topbar .title {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   text-align: center;
   font-weight: 600;
   /* center inside middle column */
@@ -60,6 +64,43 @@
   opacity: .95;
   pointer-events: none;
   /* don’t block drags/clicks */
+}
+
+.load-status{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: #4ade80;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.load-status.idle{
+  opacity: 0;
+}
+
+.load-status.loading::before{
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #60a5fa;
+  animation: load-dot-pulse 1s ease-in-out infinite;
+}
+
+.load-status.ready{
+  opacity: 1;
+}
+
+.load-status.ready::before{
+  content: "✓";
+}
+
+@keyframes load-dot-pulse {
+  0%, 100% { opacity: .45; transform: scale(.8); }
+  50% { opacity: 1; transform: scale(1.15); }
 }
 
 /* Right actions (buttons) */

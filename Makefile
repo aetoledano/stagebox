@@ -24,10 +24,16 @@ build-win:
 
 .PHONY: dep
 dep:
+	@echo "→ Ensuring Go dependencies are up to date…"
+	@go mod tidy && go mod vendor
+
+.PHONY: gccdeps
+gccdeps:
 	@echo "→ Ensuring cross-compiler $(WIN_CC) is installed…"
 	@command -v $(WIN_CC) >/dev/null || { \
 		echo "Missing $(WIN_CC). Install MinGW-w64:"; \
 		echo "  sudo apt install gcc-mingw-w64 g++-mingw-w64"; \
-		exit 1; }	
-	@echo "→ Ensuring Go dependencies are up to date…"
-	@go mod tidy && go mod vendor
+		exit 1; }
+
+# dependencies names
+# sudo dnf install gcc gcc-c++ pkgconf-pkg-config gtk3-devel webkit2gtk4.1-devel libsoup3-devel mingw64-winpthreads mingw64-zlib mingw64-gcc mingw64-gcc-c++ mingw64-crt mingw64-headers

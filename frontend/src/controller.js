@@ -131,3 +131,7 @@ export function controllerInit(opts) {
     else if (name === "KILL") KillRunning()
   });
 }
+
+export function controllerRefresh() {
+  updateClasses();
+}
