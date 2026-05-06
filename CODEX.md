@@ -12,18 +12,28 @@ The project is Windows-focused at runtime, but many platform-specific tools have
 
 - `main.go`: Wails entry point. Embeds `frontend/dist`, loads `config.json`, initializes logging, binds `App`, and starts Wails.
 - `app.go`: Wails-bound backend API used by the frontend. Owns app lifecycle, game loading/launching, Bluetooth status events, controller bridge setup, and system actions.
+- `internal/assets`: runtime asset helpers, including thumbnail cache path and Wails thumbnail HTTP handler.
 - `internal/config`: JSON config shape. Currently `gamesRoot` and `debug`.
 - `internal/games`: game metadata model, concurrent game directory loader, thumbnail generation/cache support, launch/kill tracking.
+- `internal/jsonx`: strict JSON file loader used by config and game metadata loading.
 - `internal/logx`: small logging package with file/stdout support and panic recovery.
-- `tools`: platform tools. Windows files contain Win32/PowerShell integrations; `*_stub.go` files keep non-Windows builds safe.
+- `internal/platform`: platform integration packages. Windows files contain Win32/PowerShell integrations; `*_stub.go` files keep non-Windows builds safe.
+  - `bluetooth`: Bluetooth state, bring-up, and auto-pairing.
+  - `controller`: XInput polling and Wails gamepad events.
+  - `cursor`: cursor visibility helpers.
+  - `display`: display resolution selection.
+  - `shell`: per-user shell registration.
+  - `wallpaper`: native wallpaper host.
+  - `winapi`: shared Windows DLL handles.
 - `frontend/src`: vanilla JS frontend modules and CSS.
+- `frontend/src/features`: frontend feature modules for Bluetooth, clock, and controller navigation.
 - `frontend/wailsjs`: generated Wails bindings used by frontend imports.
 - `custom_scripts`: Windows bootstrap/autologon/Bluetooth helper scripts.
 - `vendor`: committed Go vendor tree.
 
 ## Runtime Data Flow
 
-1. `main.go` creates a default config and overlays `config.json` with `tools.LoadJSONFile`.
+1. `main.go` creates a default config and overlays `config.json` with `jsonx.LoadJSONFile`.
 2. `NewApp` stores the config and Wails binds the `App` instance.
 3. On startup, `App.startup`:
    - saves the Wails context,
@@ -57,7 +67,7 @@ Expected fields map to `internal/games.GameData`:
 Notes:
 
 - `id` is optional in JSON. If omitted, the loader creates a deterministic UUID from the game name, falling back to the game directory name when the name is blank. If `id` is supplied, it must be a valid UUID.
-- JSON decoding is strict. Unknown keys fail because `tools.LoadJSONFile` uses `DisallowUnknownFields`.
+- JSON decoding is strict. Unknown keys fail because `jsonx.LoadJSONFile` uses `DisallowUnknownFields`.
 - `executable`, `image`, and `startsOn` are resolved relative to the game directory.
 - Images are processed into cached thumbnails. The frontend receives `thumbnailUrl` and `imageHash`, not base64 image data.
 - JPEG, PNG, GIF, WebP, and AVIF source images are supported for thumbnail generation.
@@ -67,14 +77,14 @@ Notes:
 - The frontend uses Vite and plain JavaScript, not a component framework.
 - `frontend/index.html` contains the fixed topbar and `.content` shell.
 - `frontend/src/main.js` renders the game grid dynamically.
-- `frontend/src/controller.js` listens for Wails runtime events:
+- `frontend/src/features/controller.js` listens for Wails runtime events:
   - `pad:nav` with `{ dir: "left" | "right" | "up" | "down" }`
   - `pad:press` with `"A"` or `"KILL"`
 - `frontend/src/main.js` listens for:
   - `game:loaded` with a single game payload
   - `games:loading` with `{ loading, loaded, total }`
   - `game:load-error` with `{ path, error }`
-- `frontend/src/bluetooth.js` listens for `status:update` events and calls `GetStatuses`.
+- `frontend/src/features/bluetooth.js` listens for `status:update` events and calls `GetStatuses`.
 - Wails frontend bindings are imported from `/wailsjs/go/main/App.js` and `/wailsjs/runtime`.
 
 When adding new backend methods that the frontend calls, update the Go `App` type, then regenerate Wails bindings if needed. Do not hand-edit generated binding files unless the task is specifically about generated output.
@@ -119,14 +129,14 @@ Wails runs `npm install`, `npm run build`, and `npm run dev` through the setting
 
 ## Development Hints
 
-- Prefer existing patterns: Wails-bound methods on `App`, small modules under `tools`, plain JS modules under `frontend/src`.
+- Prefer existing patterns: Wails-bound methods on `App`, domain packages under `internal/platform`, plain JS modules under `frontend/src/features`.
 - Treat `config.json` as local runtime configuration. Avoid hard-coding paths except where the Windows kiosk/bootstrap flow already requires fixed paths.
 - Preserve build tags. Every new Windows-specific file should have `//go:build windows`; add a `!windows` stub when shared code calls it.
 - Keep frontend state derived from backend events where possible. Existing event names are short and status-oriented.
 - Be careful with UUID handling. Frontend passes IDs as strings; Wails currently maps them back into `uuid.UUID` parameters for methods such as `Launch`.
 - Avoid broad changes under `vendor` unless explicitly updating vendored dependencies or local vendor patches.
 - Logging should use `internal/logx` for app diagnostics. Existing direct `log.Println` calls remain, but new app-level diagnostics should usually go through `logx`.
-- `tools.LoadJSONFile` rejects unknown JSON fields. When adding config or game metadata fields, update the Go structs first.
+- `jsonx.LoadJSONFile` rejects unknown JSON fields. When adding config or game metadata fields, update the Go structs first.
 - Do not assume Windows helper commands work on Linux. Non-Windows stubs intentionally return no-op or `"unknown"` behavior.
 - Keep thumbnail filenames hash-based. The hash is the cache invalidation signal when source images change.
 
@@ -135,9 +145,9 @@ Wails runs `npm install`, `npm run build`, and `npm run dev` through the setting
 - Add game metadata fields: update `internal/games/data.go`, adjust `internal/games/loader.go` if path resolution or derived data is needed, then update `frontend/src/main.js` rendering.
 - Add thumbnail behavior: update `internal/games/thumbnails.go`, keep output URLs under `/game-thumbs/`, and avoid putting image bytes in Wails method return payloads.
 - Add a topbar action: add the button in `frontend/index.html`, bind it in `frontend/src/main.js`, and expose a Go `App` method if it needs backend behavior.
-- Add controller behavior: update event emission in `tools/controller_windows.go` and handling in `frontend/src/controller.js`.
+- Add controller behavior: update event emission in `internal/platform/controller/controller_windows.go` and handling in `frontend/src/features/controller.js`.
 - Add a status indicator: add backend status data in `App.GetStatuses`, emit `status:update` when it changes, then render it in a frontend module.
-- Add Windows integration: implement in `tools/*_windows.go`, call it from `app.go` or an `App` method, and create a matching stub file.
+- Add Windows integration: implement it under the relevant `internal/platform/*` package, call it from `app.go` or an `App` method, and create a matching stub file.
 
 ## Verification
 

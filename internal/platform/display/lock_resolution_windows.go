@@ -1,9 +1,10 @@
 //go:build windows
 
-package tools
+package display
 
 import (
 	"fmt"
+	"launcher/internal/platform/winapi"
 	"unsafe"
 )
 
@@ -64,9 +65,9 @@ const (
 )
 
 var (
-	procEnumDisplaySettingsExW = user32.NewProc("EnumDisplaySettingsExW")
-	procChangeDisplaySettings  = user32.NewProc("ChangeDisplaySettingsExW")
-	procEnumDisplayDevices     = user32.NewProc("EnumDisplayDevicesW")
+	procEnumDisplaySettingsExW = winapi.User32.NewProc("EnumDisplaySettingsExW")
+	procChangeDisplaySettings  = winapi.User32.NewProc("ChangeDisplaySettingsExW")
+	procEnumDisplayDevices     = winapi.User32.NewProc("EnumDisplayDevicesW")
 )
 
 type displayMode struct{ w, h, hz uint32 }

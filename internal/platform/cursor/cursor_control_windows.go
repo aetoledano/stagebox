@@ -1,8 +1,10 @@
 //go:build windows
 
-package tools
+package cursor
 
-var procShowCursor = user32.NewProc("ShowCursor")
+import "launcher/internal/platform/winapi"
+
+var procShowCursor = winapi.User32.NewProc("ShowCursor")
 
 // Hides/shows cursor globally using the display-count semantics:
 // visible when count >= 0, hidden when count < 0.

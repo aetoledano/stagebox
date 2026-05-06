@@ -1,9 +1,10 @@
 //go:build windows
 
-package tools
+package wallpaper
 
 import (
 	"errors"
+	"launcher/internal/platform/winapi"
 	"math"
 	"path/filepath"
 	"runtime"
@@ -29,33 +30,33 @@ func StartWallpaper(imagePath string, mode string) (func(), error) {
 	}
 
 	var (
-		procRegisterClassEx  = user32.NewProc("RegisterClassExW")
-		procCreateWindowEx   = user32.NewProc("CreateWindowExW")
-		procDefWindowProc    = user32.NewProc("DefWindowProcW")
-		procShowWindow       = user32.NewProc("ShowWindow")
-		procUpdateWindow     = user32.NewProc("UpdateWindow")
-		procTranslateMessage = user32.NewProc("TranslateMessage")
-		procDispatchMessage  = user32.NewProc("DispatchMessageW")
-		procBeginPaint       = user32.NewProc("BeginPaint")
-		procEndPaint         = user32.NewProc("EndPaint")
-		procGetClientRect    = user32.NewProc("GetClientRect")
-		procSetWindowPos     = user32.NewProc("SetWindowPos")
-		procGetSystemMetrics = user32.NewProc("GetSystemMetrics")
-		procPostQuitMessage  = user32.NewProc("PostQuitMessage")
-		procPeekMessage      = user32.NewProc("PeekMessageW")
+		procRegisterClassEx  = winapi.User32.NewProc("RegisterClassExW")
+		procCreateWindowEx   = winapi.User32.NewProc("CreateWindowExW")
+		procDefWindowProc    = winapi.User32.NewProc("DefWindowProcW")
+		procShowWindow       = winapi.User32.NewProc("ShowWindow")
+		procUpdateWindow     = winapi.User32.NewProc("UpdateWindow")
+		procTranslateMessage = winapi.User32.NewProc("TranslateMessage")
+		procDispatchMessage  = winapi.User32.NewProc("DispatchMessageW")
+		procBeginPaint       = winapi.User32.NewProc("BeginPaint")
+		procEndPaint         = winapi.User32.NewProc("EndPaint")
+		procGetClientRect    = winapi.User32.NewProc("GetClientRect")
+		procSetWindowPos     = winapi.User32.NewProc("SetWindowPos")
+		procGetSystemMetrics = winapi.User32.NewProc("GetSystemMetrics")
+		procPostQuitMessage  = winapi.User32.NewProc("PostQuitMessage")
+		procPeekMessage      = winapi.User32.NewProc("PeekMessageW")
 
-		procGdiplusStartup     = gdiplus.NewProc("GdiplusStartup")
-		procGdiplusShutdown    = gdiplus.NewProc("GdiplusShutdown")
-		procGdipCreateFromHDC  = gdiplus.NewProc("GdipCreateFromHDC")
-		procGdipDeleteGraphics = gdiplus.NewProc("GdipDeleteGraphics")
-		procGdipLoadImage      = gdiplus.NewProc("GdipLoadImageFromFile")
-		procGdipDisposeImage   = gdiplus.NewProc("GdipDisposeImage")
-		procGdipGetWidth       = gdiplus.NewProc("GdipGetImageWidth")
-		procGdipGetHeight      = gdiplus.NewProc("GdipGetImageHeight")
-		procGdipDrawImageRect  = gdiplus.NewProc("GdipDrawImageRectI")
+		procGdiplusStartup     = winapi.GDIPlus.NewProc("GdiplusStartup")
+		procGdiplusShutdown    = winapi.GDIPlus.NewProc("GdiplusShutdown")
+		procGdipCreateFromHDC  = winapi.GDIPlus.NewProc("GdipCreateFromHDC")
+		procGdipDeleteGraphics = winapi.GDIPlus.NewProc("GdipDeleteGraphics")
+		procGdipLoadImage      = winapi.GDIPlus.NewProc("GdipLoadImageFromFile")
+		procGdipDisposeImage   = winapi.GDIPlus.NewProc("GdipDisposeImage")
+		procGdipGetWidth       = winapi.GDIPlus.NewProc("GdipGetImageWidth")
+		procGdipGetHeight      = winapi.GDIPlus.NewProc("GdipGetImageHeight")
+		procGdipDrawImageRect  = winapi.GDIPlus.NewProc("GdipDrawImageRectI")
 
-		procGetModuleHandle = kernel32.NewProc("GetModuleHandleW")
-		procDestroyWindow   = user32.NewProc("DestroyWindow")
+		procGetModuleHandle = winapi.Kernel32.NewProc("GetModuleHandleW")
+		procDestroyWindow   = winapi.User32.NewProc("DestroyWindow")
 	)
 
 	// —— constants

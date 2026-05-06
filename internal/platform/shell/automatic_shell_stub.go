@@ -1,5 +1,5 @@
 //go:build !windows
 
-package tools
+package shell
 
 func EnsureSelfAsShell() error { return nil }

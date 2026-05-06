@@ -1,6 +1,6 @@
 //go:build windows
 
-package tools
+package bluetooth
 
 import (
 	"launcher/internal/logx"
@@ -126,11 +126,11 @@ func btServiceState() (running bool, disabled bool) {
 
 // ---- Public API ----
 
-// BluetoothState returns "on" if any radio is connectable,
+// State returns "on" if any radio is connectable,
 // "off" if radios exist but none are connectable (or service running but no connectable radio),
 // "disabled" if the service is disabled or no radios & service stopped,
 // "unknown" on errors.
-func BluetoothState() string {
+func State() string {
 	loaded := initBluetoothProcs()
 	logx.Debugf("[bt] DLL loaded: %v", loaded)
 
@@ -240,8 +240,8 @@ if ($r) { $null = $r[0].SetStateAsync([Windows.Devices.Radios.RadioState]::On).G
 	_ = exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps).Start()
 }
 
-// Public: try to ensure BT is usable, quickly.
-func EnsureBluetoothUp() {
+// EnsureUp tries to ensure BT is usable, quickly.
+func EnsureUp() {
 	ok := startBthServ()
 	_ = ok // even if false, still try user service
 	startUserBTAndTurnOn()

@@ -3,10 +3,9 @@ package main
 import (
 	"embed"
 	"fmt"
-	"launcher/tools"
-	"net/http"
+	cacheassets "launcher/internal/assets"
+	"launcher/internal/jsonx"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/wailsapp/wails/v2"
@@ -17,8 +16,6 @@ import (
 	lgx "launcher/internal/logx"
 )
 
-const thumbnailURLPrefix = "/game-thumbs"
-
 //go:embed all:frontend/dist
 var assets embed.FS
 
@@ -27,13 +24,13 @@ func main() {
 
 	// load config
 	config := config.NewConfig()
-	tools.LoadJSONFile("config.json", &config)
-	thumbnailDir := thumbnailCacheDir()
+	jsonx.LoadJSONFile("config.json", &config)
+	thumbnailDir := cacheassets.ThumbnailCacheDir()
 	if err := os.MkdirAll(thumbnailDir, 0o755); err != nil {
 		lgx.Errorf("failed to create thumbnail cache: %v", err)
 	}
 	// Create an instance of the app structure
-	app := NewApp(&config, thumbnailDir, thumbnailURLPrefix)
+	app := NewApp(&config, thumbnailDir, cacheassets.ThumbnailURLPrefix)
 
 	// Enable debug mode if specified in config
 	ts := time.Now().UnixMilli()
@@ -49,7 +46,7 @@ func main() {
 		Title: "launcher",
 		AssetServer: &assetserver.Options{
 			Assets:  assets,
-			Handler: thumbnailHandler(thumbnailDir),
+			Handler: cacheassets.ThumbnailHandler(thumbnailDir),
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
@@ -61,16 +58,4 @@ func main() {
 	if err != nil {
 		lgx.Error(err)
 	}
-}
-
-func thumbnailCacheDir() string {
-	dir := filepath.Join("cache", "thumbnails")
-	if abs, err := filepath.Abs(dir); err == nil {
-		return abs
-	}
-	return dir
-}
-
-func thumbnailHandler(thumbnailDir string) http.Handler {
-	return http.StripPrefix(thumbnailURLPrefix+"/", http.FileServer(http.Dir(thumbnailDir)))
 }

@@ -1,6 +1,6 @@
 //go:build !windows
 
-package tools
+package bluetooth
 
 func AutoPairStart(whitelist string) error { return nil }
 func AutoPairStop()                        {}

@@ -1,5 +1,5 @@
 //go:build !windows
 
-package tools
+package cursor
 
 func SetCursorHidden(hidden bool) {}

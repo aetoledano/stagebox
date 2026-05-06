@@ -3,7 +3,12 @@ package main
 import (
 	"context"
 	"launcher/internal/games"
-	"launcher/tools"
+	"launcher/internal/platform/bluetooth"
+	"launcher/internal/platform/controller"
+	"launcher/internal/platform/cursor"
+	"launcher/internal/platform/display"
+	"launcher/internal/platform/shell"
+	"launcher/internal/platform/wallpaper"
 	"log"
 	"os/exec"
 	"sync"
@@ -24,7 +29,7 @@ type App struct {
 	gamesMu            sync.RWMutex
 	thumbnailDir       string
 	thumbnailURLPrefix string
-	pad                *tools.XInputBridge
+	pad                *controller.XInputBridge
 	btStatus           string
 }
 
@@ -44,15 +49,15 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
 	// Make this launcher the per-user shell every time we start (Windows only).
-	if err := tools.EnsureSelfAsShell(); err != nil {
+	if err := shell.EnsureSelfAsShell(); err != nil {
 		// don’t crash on failure; just log
 		println("ensureSelfAsShell failed:", err.Error())
 	}
 
-	_ = tools.ForcePrimary1080pOrBest()
+	_ = display.ForcePrimary1080pOrBest()
 
 	// Start the bottom-most wallpaper host
-	if stop, err := tools.StartWallpaper("loading.jpg", "cover"); err == nil {
+	if stop, err := wallpaper.StartWallpaper("loading.jpg", "cover"); err == nil {
 		// ensure it is torn down cleanly
 		// if you already have a global cleanup, call stop() there instead
 		go func() { <-ctx.Done(); stop() }() // on app exit
@@ -60,7 +65,7 @@ func (a *App) startup(ctx context.Context) {
 		println("wallpaper host failed:", err.Error())
 	}
 
-	a.pad = tools.StartXInputBridge(ctx)
+	a.pad = controller.StartXInputBridge(ctx)
 
 	go a.watchBluetooth()
 
@@ -191,9 +196,9 @@ func (a *App) Launch(id uuid.UUID) {
 	// Don't block the call; wait in background
 	go func() {
 		if !game.ShowCursor {
-			tools.SetCursorHidden(true)
+			cursor.SetCursorHidden(true)
 		}
-		defer tools.SetCursorHidden(false)
+		defer cursor.SetCursorHidden(false)
 
 		err := <-ch
 		if err != nil {
@@ -227,9 +232,8 @@ func (a *App) Explorer() {
 
 func (a *App) GetStatuses() map[string]any {
 	return map[string]any{
-		"bt":       tools.BluetoothState(),
-		"autopair": tools.AutoPairRunning(),
-		// "mapper": tools.MapperRunning(), // if you kept it
+		"bt":       bluetooth.State(),
+		"autopair": bluetooth.AutoPairRunning(),
 	}
 }
 
@@ -237,7 +241,7 @@ func (a *App) watchBluetooth() {
 	lgx.Info("Starting Bluetooth state watcher")
 
 	// initial emit
-	s := tools.BluetoothState()
+	s := bluetooth.State()
 	a.btStatus = s
 	runtime.EventsEmit(a.ctx, "status:update", map[string]any{"bt": s})
 
@@ -247,7 +251,7 @@ func (a *App) watchBluetooth() {
 	for {
 		select {
 		case <-t.C:
-			st := tools.BluetoothState()
+			st := bluetooth.State()
 			if st != a.btStatus {
 				a.btStatus = st
 				runtime.EventsEmit(a.ctx, "status:update", map[string]any{"bt": st})
@@ -261,7 +265,7 @@ func (a *App) watchBluetooth() {
 // in app.go
 func (a *App) AutoPairStart(whitelist string) error {
 	lgx.Infof("AutoPairStart called with whitelist=%q", whitelist)
-	err := tools.AutoPairStart(whitelist)
+	err := bluetooth.AutoPairStart(whitelist)
 	if err != nil {
 		lgx.Errorf("AutoPairStart error: %v", err)
 		return err
@@ -272,18 +276,18 @@ func (a *App) AutoPairStart(whitelist string) error {
 }
 
 func (a *App) AutoPairStop() {
-	tools.AutoPairStop()
+	bluetooth.AutoPairStop()
 	runtime.EventsEmit(a.ctx, "status:update", map[string]any{"autopair": false})
 }
 
-func (a *App) AutoPairRunning() bool { return tools.AutoPairRunning() }
+func (a *App) AutoPairRunning() bool { return bluetooth.AutoPairRunning() }
 
 // app.go
 func (a *App) EnsureBT() {
-	tools.EnsureBluetoothUp()
+	bluetooth.EnsureUp()
 	// emit a fresh status so UI updates
 	runtime.EventsEmit(a.ctx, "status:update", map[string]any{
-		"bt": tools.BluetoothState(),
+		"bt": bluetooth.State(),
 	})
 }
 

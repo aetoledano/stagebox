@@ -1,7 +1,7 @@
 package games
 
 import (
-	"launcher/tools"
+	"launcher/internal/jsonx"
 	"log"
 	"os"
 	"path/filepath"
@@ -115,7 +115,7 @@ func LoadGamesWithOptions(rootPath string, opts LoadOptions) map[uuid.UUID]*Game
 func loadGame(gamePath string, opts LoadOptions) (*GameData, error) {
 	lcPath := filepath.Join(gamePath, "lc.json")
 	gd := NewGameData()
-	if err := tools.LoadJSONFile(lcPath, &gd); err != nil {
+	if err := jsonx.LoadJSONFile(lcPath, &gd); err != nil {
 		return nil, err
 	}
 	if gd.ID == uuid.Nil {

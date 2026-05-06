@@ -1,6 +1,6 @@
 //go:build !windows
 
-package tools
+package wallpaper
 
 // StartWallpaper is a no-op on non-Windows.
 // It returns a no-op stop function so callers can defer it safely.

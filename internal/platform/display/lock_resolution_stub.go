@@ -1,6 +1,6 @@
 //go:build !windows
 
-package tools
+package display
 
 func ForcePrimary1080pOrBest() error {
 	return nil
