@@ -5,13 +5,14 @@ const BT_GLYPH = "\uE702"; // Segoe MDL2 Bluetooth
 
 let lastState = "unknown";
 let isPairing = false;
+let pairingStatus = "off";
 
 function applyBT(el) {
   el.textContent = BT_GLYPH;
   el.classList.remove("on", "off", "disabled", "unknown", "pairing");
   el.classList.add(lastState);
   if (isPairing) el.classList.add("pairing");
-  el.title = `Bluetooth: ${lastState}${isPairing ? " (pairing…)" : ""}`;
+  el.title = `Bluetooth: ${lastState}${isPairing ? ` (${pairingStatus})` : ""}`;
 }
 
 function paintBTStatus(payload) {
@@ -20,6 +21,7 @@ function paintBTStatus(payload) {
 
   if (payload && payload.bt) lastState = String(payload.bt).toLowerCase();
   if (payload && "autopair" in payload) isPairing = !!payload.autopair;
+  if (payload && payload.autopairStatus) pairingStatus = String(payload.autopairStatus).toLowerCase();
 
   applyBT(el);
 }

@@ -34,7 +34,10 @@ func main() {
 
 	// Enable debug mode if specified in config
 	ts := time.Now().UnixMilli()
-	logFileName := fmt.Sprintf("debug-%v.log", ts)
+	logFileName := "launcher.log"
+	if config.Debug {
+		logFileName = fmt.Sprintf("debug-%v.log", ts)
+	}
 	if err := lgx.Init(config.Debug, logFileName, true); err != nil {
 		lgx.Errorf("failed to open log file at default path: %v", err)
 	}

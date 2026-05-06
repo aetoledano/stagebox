@@ -31,6 +31,8 @@ type App struct {
 	thumbnailURLPrefix string
 	pad                *controller.XInputBridge
 	btStatus           string
+	autoPairRunning    bool
+	autoPairStatus     string
 }
 
 // NewApp creates a new App application struct
@@ -232,8 +234,9 @@ func (a *App) Explorer() {
 
 func (a *App) GetStatuses() map[string]any {
 	return map[string]any{
-		"bt":       bluetooth.State(),
-		"autopair": bluetooth.AutoPairRunning(),
+		"bt":             bluetooth.State(),
+		"autopair":       bluetooth.AutoPairRunning(),
+		"autopairStatus": bluetooth.AutoPairStatus(),
 	}
 }
 
@@ -242,8 +245,16 @@ func (a *App) watchBluetooth() {
 
 	// initial emit
 	s := bluetooth.State()
+	apRunning := bluetooth.AutoPairRunning()
+	apStatus := bluetooth.AutoPairStatus()
 	a.btStatus = s
-	runtime.EventsEmit(a.ctx, "status:update", map[string]any{"bt": s})
+	a.autoPairRunning = apRunning
+	a.autoPairStatus = apStatus
+	runtime.EventsEmit(a.ctx, "status:update", map[string]any{
+		"bt":             s,
+		"autopair":       apRunning,
+		"autopairStatus": apStatus,
+	})
 
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
@@ -252,9 +263,17 @@ func (a *App) watchBluetooth() {
 		select {
 		case <-t.C:
 			st := bluetooth.State()
-			if st != a.btStatus {
+			apRunning := bluetooth.AutoPairRunning()
+			apStatus := bluetooth.AutoPairStatus()
+			if st != a.btStatus || apRunning != a.autoPairRunning || apStatus != a.autoPairStatus {
 				a.btStatus = st
-				runtime.EventsEmit(a.ctx, "status:update", map[string]any{"bt": st})
+				a.autoPairRunning = apRunning
+				a.autoPairStatus = apStatus
+				runtime.EventsEmit(a.ctx, "status:update", map[string]any{
+					"bt":             st,
+					"autopair":       apRunning,
+					"autopairStatus": apStatus,
+				})
 			}
 		case <-a.ctx.Done():
 			return
@@ -270,14 +289,20 @@ func (a *App) AutoPairStart(whitelist string) error {
 		lgx.Errorf("AutoPairStart error: %v", err)
 		return err
 	}
-	runtime.EventsEmit(a.ctx, "status:update", map[string]any{"autopair": true})
+	runtime.EventsEmit(a.ctx, "status:update", map[string]any{
+		"autopair":       true,
+		"autopairStatus": bluetooth.AutoPairStatus(),
+	})
 	lgx.Infof("AutoPairStart OK (loop running)")
 	return nil
 }
 
 func (a *App) AutoPairStop() {
 	bluetooth.AutoPairStop()
-	runtime.EventsEmit(a.ctx, "status:update", map[string]any{"autopair": false})
+	runtime.EventsEmit(a.ctx, "status:update", map[string]any{
+		"autopair":       false,
+		"autopairStatus": bluetooth.AutoPairStatus(),
+	})
 }
 
 func (a *App) AutoPairRunning() bool { return bluetooth.AutoPairRunning() }

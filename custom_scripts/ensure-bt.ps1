@@ -79,13 +79,16 @@ function Ensure-UserBluetoothSvc {
 function Get-BTHealth {
   try {
     $cim = Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue
-    $intel  = $cim | Where-Object { $_.Name -match 'Intel\(R\)\s*Wireless\s*Bluetooth' -and $_.Status -eq 'OK' }
-    $enum   = $cim | Where-Object { $_.Name -eq 'Microsoft Bluetooth Enumerator' -and $_.Status -eq 'OK' }
-    $enumLE = $cim | Where-Object { $_.Name -eq 'Microsoft Bluetooth LE Enumerator' -and $_.Status -eq 'OK' }
-    $radio  = $cim | Where-Object { $_.PNPDeviceID -match '^SWD\\RADIO\\BLUETOOTH' -and $_.Status -eq 'OK' }
-    $okAll  = ($intel -and $enum -and $enumLE -and $radio)
-    Log ("health: intel={0} enum={1} enumLE={2} radio={3}" -f ($intel.Count -gt 0),($enum.Count -gt 0),($enumLE.Count -gt 0),($radio.Count -gt 0))
-    return $okAll
+    $adapter = @($cim | Where-Object {
+      ($_.Name -match 'Bluetooth' -or $_.PNPDeviceID -match 'USB\\VID_8087|USB\\VID_0A5C|USB\\VID_0BDA|USB\\VID_0A12|BTH') -and
+      $_.Status -eq 'OK'
+    })
+    $enum   = @($cim | Where-Object { $_.Name -eq 'Microsoft Bluetooth Enumerator' -and $_.Status -eq 'OK' })
+    $enumLE = @($cim | Where-Object { $_.Name -eq 'Microsoft Bluetooth LE Enumerator' -and $_.Status -eq 'OK' })
+    $radio  = @($cim | Where-Object { $_.PNPDeviceID -match '^SWD\\RADIO\\BLUETOOTH' -and $_.Status -eq 'OK' })
+    $ok = (($adapter.Count -gt 0) -or ($radio.Count -gt 0)) -and (($enum.Count -gt 0) -or ($enumLE.Count -gt 0))
+    Log ("health: adapter={0} enum={1} enumLE={2} radio={3} ok={4}" -f ($adapter.Count -gt 0),($enum.Count -gt 0),($enumLE.Count -gt 0),($radio.Count -gt 0),$ok)
+    return [bool]$ok
   } catch {
     Log "health: error: $($_.Exception.Message)"
     return $false

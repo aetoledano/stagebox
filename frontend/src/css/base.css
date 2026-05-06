@@ -13,7 +13,7 @@
   --ui-font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
              "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
 
-  --topbar-h: 48px;    /* toolbar height */
+  --topbar-h: 56px;    /* toolbar height */
   --accent: #2a7;      /* ring/accent (fallback if JS color pick fails) */
   --ring-w: 2px;       /* focus ring width for cards */
 }

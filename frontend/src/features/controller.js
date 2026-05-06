@@ -32,6 +32,12 @@ function updateClasses() {
   }
 }
 
+export function controllerFocusGrid(index = state.i) {
+  state.mode = "grid";
+  state.i = index;
+  updateClasses();
+}
+
 function cols() {
   const cards = getCards();
   if (cards.length < 2) return 1;

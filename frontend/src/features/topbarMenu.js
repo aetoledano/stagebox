@@ -3,6 +3,7 @@ const state = { open: false, i: 0 };
 let overlay = null;
 let toggleButton = null;
 let menu = null;
+let onClose = null;
 
 function getItems() {
   return [...document.querySelectorAll("#tools-menu-overlay .menu-item")];
@@ -24,6 +25,8 @@ export function isMenuOpen() {
 
 export function openMenu(index = 0) {
   if (!overlay || !toggleButton) return;
+  document.querySelectorAll(".topbar .btn.gp-focus, .content .card.gp-focus")
+    .forEach((el) => el.classList.remove("gp-focus"));
   state.open = true;
   state.i = index;
   overlay.hidden = false;
@@ -41,7 +44,8 @@ export function closeMenu() {
   toggleButton.setAttribute("aria-expanded", "false");
   toggleButton.classList.remove("active");
   getItems().forEach((item) => item.classList.remove("gp-focus"));
-  toggleButton.focus({ preventScroll: true });
+  toggleButton.blur();
+  onClose?.();
 }
 
 export function toggleMenu() {
@@ -81,7 +85,8 @@ export function handleControllerPress(name) {
   return false;
 }
 
-export function initTopbarMenu() {
+export function initTopbarMenu(opts = {}) {
+  onClose = opts.onClose || null;
   overlay = document.getElementById("tools-menu-overlay");
   toggleButton = document.getElementById("btn-tools-menu");
   menu = overlay?.querySelector(".tools-menu") || null;

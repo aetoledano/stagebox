@@ -41,6 +41,8 @@ var (
 	procRemoveDevice    *windows.LazyProc
 
 	bluetoothProcsInitialized bool
+	bluetoothHaveAuthEx       bool
+	bluetoothHaveAuthPIN      bool
 )
 
 func initBluetoothProcs() bool {
@@ -67,10 +69,13 @@ func initBluetoothProcs() bool {
 		rd := d.NewProc("BluetoothRemoveDevice")
 
 		// Require the core radios + device enumeration; AuthEx OR PIN is acceptable.
+		authExOK := ax.Find() == nil
+		authPINOK := ap.Find() == nil
+
 		if ff.Find() == nil && fn.Find() == nil && fc.Find() == nil &&
 			ic.Find() == nil &&
 			fd1.Find() == nil && fd2.Find() == nil && fdC.Find() == nil &&
-			(ax.Find() == nil || ap.Find() == nil) && rd.Find() == nil {
+			(authExOK || authPINOK) && rd.Find() == nil {
 
 			procFindFirstRadio, procFindNextRadio, procFindRadioClose = ff, fn, fc
 			procIsConnectable = ic
@@ -86,6 +91,9 @@ func initBluetoothProcs() bool {
 			procUpdateDevice, procRemoveDevice = ud, rd
 
 			bluetoothProcsInitialized = true
+			bluetoothHaveAuthEx = authExOK
+			bluetoothHaveAuthPIN = authPINOK
+			logx.Debugf("[bt] auth APIs: AuthEx=%v PIN=%v", bluetoothHaveAuthEx, bluetoothHaveAuthPIN)
 			return true
 		}
 		return false

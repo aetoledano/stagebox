@@ -5,7 +5,7 @@ import { Shutdown, Restart, LoadGames, Launch, Explorer, AutoPairStart, AutoPair
 import { EventsOn } from "/wailsjs/runtime";
 import { initBTIndicator, refreshBTIndicator } from "./features/bluetooth.js";
 import { startClock } from "./features/clock.js";
-import { controllerInit, controllerRefresh } from "./features/controller.js";
+import { controllerFocusGrid, controllerInit, controllerRefresh } from "./features/controller.js";
 import { initTopbarMenu } from "./features/topbarMenu.js";
 
 // build topbar once (or keep your existing HTML)
@@ -20,15 +20,14 @@ document.querySelector("#btn-auto-bt-pair")?.addEventListener("click", async () 
     if (on) {
       await AutoPairStop();
     } else {
-      const WL = "8bitdo,dualshock,xbox,pro"; // tweak your whitelist here
+      const WL = "8bitdo,dualshock,dualsense,xbox,pro controller,wireless controller";
       await AutoPairStart(WL);
     }
     // Refresh visual state (will also be updated by Go via status:update)
     await refreshBTIndicator();
 
-    // Optional: toggle the button “active” look
     const btn = document.getElementById("btn-auto-bt-pair");
-    if (btn) btn.classList.toggle("active", await AutoPairRunning());
+    if (btn) btn.classList.toggle("autopair-on", await AutoPairRunning());
   } catch (e) {
     console.error("AutoPair toggle failed:", e);
   }
@@ -157,7 +156,7 @@ async function loadAndShow() {
   mergeReturnedGames(raw);
 }
 
-initTopbarMenu();
+initTopbarMenu({ onClose: () => controllerFocusGrid() });
 initBTIndicator();
 loadAndShow();
 startClock("America/Mexico_City");
