@@ -41,6 +41,7 @@ const (
 	XINPUT_GAMEPAD_LEFT_SHOULDER  = 0x0100
 	XINPUT_GAMEPAD_RIGHT_SHOULDER = 0x0200
 	XINPUT_GAMEPAD_A              = 0x1000
+	XINPUT_GAMEPAD_B              = 0x2000
 	XINPUT_GAMEPAD_START          = 0x0010
 	XINPUT_GAMEPAD_BACK           = 0x0020
 	ERROR_DEVICE_NOT_CONNECTED    = 1167
@@ -216,6 +217,9 @@ func (b *XInputBridge) loop() {
 		// Buttons
 		if just(XINPUT_GAMEPAD_A) {
 			runtime.EventsEmit(b.ctx, "pad:press", "A")
+		}
+		if just(XINPUT_GAMEPAD_B) {
+			runtime.EventsEmit(b.ctx, "pad:press", "B")
 		}
 		if just(XINPUT_GAMEPAD_LEFT_SHOULDER) {
 			runtime.EventsEmit(b.ctx, "pad:press", "LB")

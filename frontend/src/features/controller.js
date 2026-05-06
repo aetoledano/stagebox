@@ -1,6 +1,7 @@
 import { EventsOn } from "/wailsjs/runtime";
 
 import { KillRunning } from "/wailsjs/go/main/App.js";
+import { handleControllerNav, handleControllerPress } from "./topbarMenu.js";
 
 
 let getCards = () => [];
@@ -67,6 +68,8 @@ function nearestCardIndexFromBar(btn) {
 }
 
 function move(dir) {
+  if (handleControllerNav(dir)) return;
+
   if (state.mode === "grid") {
     const cards = getCards();
     if (!cards.length) return;
@@ -127,6 +130,7 @@ export function controllerInit(opts) {
   // Wire Go -> JS events
   EventsOn("pad:nav",   ({dir}) => move(dir));
   EventsOn("pad:press", (name) => { 
+    if (handleControllerPress(name)) return;
     if (name === "A") activate() 
     else if (name === "KILL") KillRunning()
   });

@@ -22,12 +22,33 @@
         </div>
 
         <div class="actions">
-            <button class="btn iconbtn" id="btn-auto-bt-pair" aria-label="Auto BT Pairing On/Off" title="Auto BT Pairing On/Off">&#x1F517;&#xFE0E;</button>
-            <button class="btn iconbtn" id="btn-reload" aria-label="Reload" title="Reload">&#x1F5D8;&#xFE0E;</button>
-            <button class="btn iconbtn" id="btn-explorer" aria-label="Explorer"
-                title="Explorer">&#x1F5C1;&#xFE0E;</button>
-            <button class="btn iconbtn" id="btn-restart" title="Restart" aria-label="Restart">⟲</button>
-            <button class="btn iconbtn mdl2" id="btn-shutdown" title="Power" aria-label="Power">&#xE7E8;</button>
+            <button class="btn iconbtn mdl2" id="btn-tools-menu" aria-label="Open tools menu" aria-expanded="false"
+                aria-controls="tools-menu-overlay" title="Tools">&#xE713;</button>
+        </div>
+    </div>
+
+    <div id="tools-menu-overlay" class="menu-overlay" hidden>
+        <div class="tools-menu" role="menu" aria-label="Tools menu">
+            <button class="menu-item" id="btn-auto-bt-pair" role="menuitem" aria-label="Auto Bluetooth Pairing">
+                <span class="menu-icon" aria-hidden="true">&#x1F517;&#xFE0E;</span>
+                <span class="menu-label">Auto Bluetooth Pairing</span>
+            </button>
+            <button class="menu-item" id="btn-reload" role="menuitem" aria-label="Reload Launcher">
+                <span class="menu-icon" aria-hidden="true">&#x1F5D8;&#xFE0E;</span>
+                <span class="menu-label">Reload Launcher</span>
+            </button>
+            <button class="menu-item" id="btn-explorer" role="menuitem" aria-label="Open Games Folder">
+                <span class="menu-icon" aria-hidden="true">&#x1F5C1;&#xFE0E;</span>
+                <span class="menu-label">Open Games Folder</span>
+            </button>
+            <button class="menu-item" id="btn-restart" role="menuitem" aria-label="Restart System">
+                <span class="menu-icon" aria-hidden="true">⟲</span>
+                <span class="menu-label">Restart System</span>
+            </button>
+            <button class="menu-item" id="btn-shutdown" role="menuitem" aria-label="Power Off">
+                <span class="menu-icon mdl2" aria-hidden="true">&#xE7E8;</span>
+                <span class="menu-label">Power Off</span>
+            </button>
         </div>
     </div>
 

@@ -6,6 +6,7 @@ import { EventsOn } from "/wailsjs/runtime";
 import { initBTIndicator, refreshBTIndicator } from "./features/bluetooth.js";
 import { startClock } from "./features/clock.js";
 import { controllerInit, controllerRefresh } from "./features/controller.js";
+import { initTopbarMenu } from "./features/topbarMenu.js";
 
 // build topbar once (or keep your existing HTML)
 document.querySelector("#btn-reload")?.addEventListener("click", () => window.location.reload());
@@ -156,6 +157,7 @@ async function loadAndShow() {
   mergeReturnedGames(raw);
 }
 
+initTopbarMenu();
 initBTIndicator();
 loadAndShow();
 startClock("America/Mexico_City");
