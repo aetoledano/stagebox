@@ -19,7 +19,7 @@
 
   /* shine + depth (original) */
   box-shadow:
-    0 0 0 0 var(--accent),           /* hover ring starts at 0 */
+    0 0 0 0 var(--accent),
     0 4px 10px rgba(0, 0, 0, .35);
 
   transition: box-shadow .15s ease, transform .08s ease;
@@ -38,8 +38,7 @@
   border-top-right-radius: inherit;
 }
 
-/* Hover/focus “ring” & lift */
-.card:hover,
+/* Controller/keyboard focus ring & lift */
 .card.gp-focus,
 .card:focus-visible{
   box-shadow:

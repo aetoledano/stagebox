@@ -1,37 +1,20 @@
 import "./css/base.css";
 import "./css/cards.css";
 import "./css/topbar.css";
-import { Shutdown, Restart, LoadGames, Launch, Explorer, AutoPairStart, AutoPairStop, AutoPairRunning, Info, Warn, Error } from "/wailsjs/go/main/App.js";
+import { Shutdown, Restart, ExitLauncher, OpenBluetoothPairing, LoadGames, Launch, Explorer, GetStatuses, Info, Warn, Error } from "/wailsjs/go/main/App.js";
 import { EventsOn } from "/wailsjs/runtime";
-import { initBTIndicator, refreshBTIndicator } from "./features/bluetooth.js";
+import { initBTIndicator } from "./features/bluetooth.js";
 import { startClock } from "./features/clock.js";
 import { controllerFocusGrid, controllerInit, controllerRefresh } from "./features/controller.js";
-import { initTopbarMenu } from "./features/topbarMenu.js";
+import { closeMenu, initTopbarMenu } from "./features/topbarMenu.js";
 
 // build topbar once (or keep your existing HTML)
 document.querySelector("#btn-reload")?.addEventListener("click", () => window.location.reload());
+document.querySelector("#btn-debug-exit")?.addEventListener("click", () => ExitLauncher().catch(console.error));
+document.querySelector("#btn-debug-bt-pairing")?.addEventListener("click", () => OpenBluetoothPairing().catch(console.error));
 document.querySelector("#btn-restart")?.addEventListener("click", () => Restart());
 document.querySelector("#btn-shutdown")?.addEventListener("click", () => Shutdown());
 document.querySelector("#btn-explorer")?.addEventListener("click", () => Explorer());
-
-document.querySelector("#btn-auto-bt-pair")?.addEventListener("click", async () => {
-  try {
-    const on = await AutoPairRunning();
-    if (on) {
-      await AutoPairStop();
-    } else {
-      const WL = "8bitdo,dualshock,dualsense,xbox,pro controller,wireless controller";
-      await AutoPairStart(WL);
-    }
-    // Refresh visual state (will also be updated by Go via status:update)
-    await refreshBTIndicator();
-
-    const btn = document.getElementById("btn-auto-bt-pair");
-    if (btn) btn.classList.toggle("autopair-on", await AutoPairRunning());
-  } catch (e) {
-    console.error("AutoPair toggle failed:", e);
-  }
-});
 
 
 const container = document.querySelector(".content .scrollport") || document.querySelector(".content");
@@ -40,6 +23,15 @@ grid.className = "grid";
 container.replaceChildren(grid);
 
 const cardsByID = new Map();
+const pairingShield = document.getElementById("pairing-input-shield");
+let pairingShieldActive = false;
+
+function setDebugToolsVisible(debug) {
+  document.querySelectorAll("[data-debug-only]").forEach((el) => {
+    el.hidden = !debug;
+  });
+  controllerRefresh();
+}
 
 function normalizeGame(g, fallbackID = "") {
   return {
@@ -145,6 +137,27 @@ EventsOn("games:loading", setLoadStatus);
 EventsOn("game:load-error", (payload) => {
   console.warn("Game load failed:", payload);
 });
+EventsOn("status:update", (payload) => {
+  if (payload && "debug" in payload) setDebugToolsVisible(!!payload.debug);
+});
+EventsOn("pairing-ui:start", () => {
+  pairingShieldActive = true;
+  closeMenu();
+  if (pairingShield) pairingShield.hidden = false;
+});
+EventsOn("pairing-ui:end", () => {
+  pairingShieldActive = false;
+  if (pairingShield) pairingShield.hidden = true;
+  controllerFocusGrid();
+});
+
+["click", "dblclick", "pointerdown", "pointerup", "mousedown", "mouseup", "keydown"].forEach((type) => {
+  window.addEventListener(type, (e) => {
+    if (!pairingShieldActive) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+});
 
 async function loadAndShow() {
   setLoadStatus({ loading: true });
@@ -158,6 +171,7 @@ async function loadAndShow() {
 
 initTopbarMenu({ onClose: () => controllerFocusGrid() });
 initBTIndicator();
+GetStatuses().then((s) => setDebugToolsVisible(!!s.debug)).catch(() => setDebugToolsVisible(false));
 loadAndShow();
 startClock("America/Mexico_City");
 

@@ -6,6 +6,10 @@ let menu = null;
 let onClose = null;
 
 function getItems() {
+  return [...document.querySelectorAll("#tools-menu-overlay .menu-item:not([hidden])")];
+}
+
+function getAllItems() {
   return [...document.querySelectorAll("#tools-menu-overlay .menu-item")];
 }
 
@@ -68,6 +72,11 @@ export function handleControllerNav(dir) {
 }
 
 export function handleControllerPress(name) {
+  if (name === "START") {
+    if (!state.open) openMenu();
+    return true;
+  }
+
   if (state.open) {
     if (name === "B") {
       closeMenu();
@@ -97,8 +106,10 @@ export function initTopbarMenu(opts = {}) {
     if (e.target === overlay) closeMenu();
   });
 
-  getItems().forEach((item, i) => {
+  getAllItems().forEach((item) => {
     item.addEventListener("mouseenter", () => {
+      const i = getItems().indexOf(item);
+      if (i < 0) return;
       state.i = i;
       if (state.open) updateFocus();
     });

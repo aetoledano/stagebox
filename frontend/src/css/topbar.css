@@ -212,11 +212,6 @@
   background: rgba(46, 46, 46, 0.9);
 }
 
-.menu-item.autopair-on{
-  background: rgba(96,165,250,.20);
-  border-color: rgba(96,165,250,.55);
-}
-
 .menu-item.gp-focus,
 .menu-item:focus-visible{
   outline: 2px solid var(--accent);
@@ -232,6 +227,16 @@
   height: 28px;
   font-size: 20px;
   line-height: 1;
+}
+
+html,
+body,
+button,
+.card,
+.topbar .btn,
+.menu-item,
+.pairing-input-shield {
+  cursor: none;
 }
 
 .menu-icon.mdl2{
@@ -262,21 +267,30 @@
   color: #4ade80;
 }
 
-.bti.off {
+.bti.idle,
+.bti.off,
+.bti.disabled,
+.bti.unknown {
   color: #a3a3a3;
 }
 
-.bti.disabled {
-  color: #ef4444;
-}
-
 .bti.unknown {
-  color: #ef4444;
   opacity: .6;
 }
 
 .bti.off::after,
 .bti.disabled::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  background: currentColor;
+  transform: rotate(-45deg);
+}
+
+.bti.unknown::after {
   content: "";
   position: absolute;
   left: 0;
@@ -299,9 +313,36 @@
 .bti.pairing::after { content: none; }
 
 /* Controller Mapper indicator */
+.cmi{
+  width: auto;
+  gap: 3px;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+}
+
+.cmi-icon{
+  width: 20px;
+  height: 20px;
+  display: block;
+  flex: 0 0 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cmi-count{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 8px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
 .cmi.active {
   color: #4ade80;
-  animation: cmi-pulse 2s infinite;
 }
 
 .cmi.inactive {

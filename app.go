@@ -10,7 +10,9 @@ import (
 	"launcher/internal/platform/shell"
 	"launcher/internal/platform/wallpaper"
 	"log"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -27,12 +29,14 @@ type App struct {
 	config             *config.Config
 	games              map[uuid.UUID]*games.GameData
 	gamesMu            sync.RWMutex
+	pairingMu          sync.Mutex
+	pairingActive      bool
 	thumbnailDir       string
 	thumbnailURLPrefix string
 	pad                *controller.XInputBridge
 	btStatus           string
-	autoPairRunning    bool
-	autoPairStatus     string
+	btConnected        bool
+	controllerCount    int
 }
 
 // NewApp creates a new App application struct
@@ -49,6 +53,8 @@ func NewApp(config *config.Config, thumbnailDir string, thumbnailURLPrefix strin
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	cursor.RestoreSystemCursor()
+	cursor.SetCursorHidden(true)
 
 	// Make this launcher the per-user shell every time we start (Windows only).
 	if err := shell.EnsureSelfAsShell(); err != nil {
@@ -93,6 +99,7 @@ func (a *App) Shutdown() {
 		a.pad.Stop()
 	}
 
+	cursor.RestoreSystemCursor()
 	exec.Command("shutdown", "-s", "-t", "0").Start()
 	runtime.Quit(a.ctx)
 
@@ -104,10 +111,139 @@ func (a *App) Restart() {
 		a.pad.Stop()
 	}
 
+	cursor.RestoreSystemCursor()
 	exec.Command("shutdown", "-r", "-t", "0").Start()
 	runtime.Quit(a.ctx)
 
 	log.Println("restarting...")
+}
+
+func (a *App) ExitLauncher() {
+	if !a.config.Debug {
+		return
+	}
+
+	if a.pad != nil {
+		a.pad.Stop()
+	}
+
+	cursor.RestoreSystemCursor()
+	lgx.Info("debug exit requested")
+	runtime.Quit(a.ctx)
+}
+
+func (a *App) OpenBluetoothPairing() error {
+	a.pairingMu.Lock()
+	if a.pairingActive {
+		a.pairingMu.Unlock()
+		lgx.Debug("device pairing wizard already active")
+		return nil
+	}
+	a.pairingActive = true
+	a.pairingMu.Unlock()
+
+	wizard := filepath.Join(os.Getenv("WINDIR"), "System32", "DevicePairingWizard.exe")
+	cmd := exec.Command(wizard)
+	if err := cmd.Start(); err != nil {
+		a.pairingMu.Lock()
+		a.pairingActive = false
+		a.pairingMu.Unlock()
+		lgx.Errorf("device pairing wizard failed: %v", err)
+		return err
+	}
+
+	cursor.SetCursorHidden(true)
+	if a.pad != nil {
+		a.pad.EnablePairingKeyboardModeForPID(uint32(cmd.Process.Pid))
+	}
+	runtime.WindowSetAlwaysOnTop(a.ctx, false)
+	runtime.EventsEmit(a.ctx, "pairing-ui:start", map[string]any{
+		"pid": cmd.Process.Pid,
+	})
+	runtime.WindowHide(a.ctx)
+	go func() {
+		done := make(chan struct{})
+		go func() {
+			_ = cmd.Wait()
+			close(done)
+		}()
+		a.waitForPairingWindow(uint32(cmd.Process.Pid), done)
+		a.closePairingProcess(cmd, done)
+		if a.pad != nil {
+			a.pad.DisablePairingKeyboardMode()
+		}
+		controller.MoveCursorTo(0, 0)
+		cursor.SetCursorHidden(true)
+		runtime.EventsEmit(a.ctx, "pairing-ui:end", map[string]any{
+			"pid": cmd.Process.Pid,
+		})
+		a.bringBack()
+		a.pairingMu.Lock()
+		a.pairingActive = false
+		a.pairingMu.Unlock()
+		lgx.Info("Windows device pairing wizard closed")
+	}()
+	lgx.Infof("opened Windows device pairing wizard: %s", wizard)
+	return nil
+}
+
+func (a *App) closePairingProcess(cmd *exec.Cmd, processDone <-chan struct{}) {
+	select {
+	case <-processDone:
+		return
+	default:
+	}
+
+	if cmd.Process == nil {
+		return
+	}
+
+	lgx.Debugf("device pairing wizard window closed; terminating lingering process pid=%d", cmd.Process.Pid)
+	if err := cmd.Process.Kill(); err != nil {
+		lgx.Debugf("device pairing wizard kill skipped: %v", err)
+	}
+
+	select {
+	case <-processDone:
+	case <-time.After(1500 * time.Millisecond):
+		lgx.Debugf("device pairing wizard process did not exit promptly pid=%d", cmd.Process.Pid)
+	}
+}
+
+func (a *App) waitForPairingWindow(pid uint32, processDone <-chan struct{}) {
+	seenWindow := false
+	var lostWindowAt time.Time
+	appearDeadline := time.Now().Add(8 * time.Second)
+	t := time.NewTicker(100 * time.Millisecond)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-processDone:
+			return
+		case <-t.C:
+			visible := controller.HasVisibleWindowForPID(pid)
+			if visible {
+				seenWindow = true
+				lostWindowAt = time.Time{}
+				controller.FocusProcessWindow(pid)
+				continue
+			}
+			now := time.Now()
+			if seenWindow {
+				if lostWindowAt.IsZero() {
+					lostWindowAt = now
+				}
+				if now.Sub(lostWindowAt) >= 700*time.Millisecond {
+					return
+				}
+				continue
+			}
+			if now.After(appearDeadline) {
+				return
+			}
+		}
+	}
 }
 
 func (a *App) LoadGames() map[uuid.UUID]*games.GameData {
@@ -179,8 +315,22 @@ func (a *App) Launch(id uuid.UUID) {
 		return
 	}
 
+	gameKeyMapActive := false
 	if a.pad != nil {
-		a.pad.Pause()
+		if game.KeyMap != nil {
+			gameKeyMapActive = a.pad.EnableGameKeyMap(controller.GameKeyMap{
+				Buttons:          game.KeyMap.Buttons,
+				LeftStick:        game.KeyMap.LeftStick,
+				RightStick:       game.KeyMap.RightStick,
+				Mouse:            game.KeyMap.Mouse,
+				MouseSensitivity: game.KeyMap.MouseSensitivity,
+			})
+			if !gameKeyMapActive {
+				a.pad.Pause()
+			}
+		} else {
+			a.pad.Pause()
+		}
 	}
 
 	log.Printf("Launching game: %s", game.Name)
@@ -197,10 +347,11 @@ func (a *App) Launch(id uuid.UUID) {
 
 	// Don't block the call; wait in background
 	go func() {
-		if !game.ShowCursor {
-			cursor.SetCursorHidden(true)
+		if game.ShowCursor {
+			cursor.ForceCursorVisible()
+		} else {
+			cursor.ForceCursorHiddenFor(2 * time.Second)
 		}
-		defer cursor.SetCursorHidden(false)
 
 		err := <-ch
 		if err != nil {
@@ -208,6 +359,13 @@ func (a *App) Launch(id uuid.UUID) {
 		} else {
 			log.Printf("Game %s exited", game.Name)
 		}
+
+		cursor.RestoreSystemCursor()
+		if a.pad != nil && gameKeyMapActive {
+			a.pad.DisableGameKeyMap()
+		}
+		controller.MoveCursorTo(0, 0)
+		cursor.SetCursorHidden(true)
 
 		a.bringBack()
 
@@ -233,28 +391,19 @@ func (a *App) Explorer() {
 }
 
 func (a *App) GetStatuses() map[string]any {
-	return map[string]any{
-		"bt":             bluetooth.State(),
-		"autopair":       bluetooth.AutoPairRunning(),
-		"autopairStatus": bluetooth.AutoPairStatus(),
-	}
+	st, connected, count := a.readHardwareStatus()
+	return a.statusPayload(st, connected, count)
 }
 
 func (a *App) watchBluetooth() {
 	lgx.Info("Starting Bluetooth state watcher")
 
 	// initial emit
-	s := bluetooth.State()
-	apRunning := bluetooth.AutoPairRunning()
-	apStatus := bluetooth.AutoPairStatus()
+	s, connected, count := a.readHardwareStatus()
 	a.btStatus = s
-	a.autoPairRunning = apRunning
-	a.autoPairStatus = apStatus
-	runtime.EventsEmit(a.ctx, "status:update", map[string]any{
-		"bt":             s,
-		"autopair":       apRunning,
-		"autopairStatus": apStatus,
-	})
+	a.btConnected = connected
+	a.controllerCount = count
+	runtime.EventsEmit(a.ctx, "status:update", a.statusPayload(s, connected, count))
 
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
@@ -262,18 +411,12 @@ func (a *App) watchBluetooth() {
 	for {
 		select {
 		case <-t.C:
-			st := bluetooth.State()
-			apRunning := bluetooth.AutoPairRunning()
-			apStatus := bluetooth.AutoPairStatus()
-			if st != a.btStatus || apRunning != a.autoPairRunning || apStatus != a.autoPairStatus {
+			st, connected, count := a.readHardwareStatus()
+			if st != a.btStatus || connected != a.btConnected || count != a.controllerCount {
 				a.btStatus = st
-				a.autoPairRunning = apRunning
-				a.autoPairStatus = apStatus
-				runtime.EventsEmit(a.ctx, "status:update", map[string]any{
-					"bt":             st,
-					"autopair":       apRunning,
-					"autopairStatus": apStatus,
-				})
+				a.btConnected = connected
+				a.controllerCount = count
+				runtime.EventsEmit(a.ctx, "status:update", a.statusPayload(st, connected, count))
 			}
 		case <-a.ctx.Done():
 			return
@@ -281,39 +424,27 @@ func (a *App) watchBluetooth() {
 	}
 }
 
-// in app.go
-func (a *App) AutoPairStart(whitelist string) error {
-	lgx.Infof("AutoPairStart called with whitelist=%q", whitelist)
-	err := bluetooth.AutoPairStart(whitelist)
-	if err != nil {
-		lgx.Errorf("AutoPairStart error: %v", err)
-		return err
-	}
-	runtime.EventsEmit(a.ctx, "status:update", map[string]any{
-		"autopair":       true,
-		"autopairStatus": bluetooth.AutoPairStatus(),
-	})
-	lgx.Infof("AutoPairStart OK (loop running)")
-	return nil
-}
-
-func (a *App) AutoPairStop() {
-	bluetooth.AutoPairStop()
-	runtime.EventsEmit(a.ctx, "status:update", map[string]any{
-		"autopair":       false,
-		"autopairStatus": bluetooth.AutoPairStatus(),
-	})
-}
-
-func (a *App) AutoPairRunning() bool { return bluetooth.AutoPairRunning() }
-
 // app.go
 func (a *App) EnsureBT() {
 	bluetooth.EnsureUp()
 	// emit a fresh status so UI updates
-	runtime.EventsEmit(a.ctx, "status:update", map[string]any{
-		"bt": bluetooth.State(),
-	})
+	st, connected, count := a.readHardwareStatus()
+	runtime.EventsEmit(a.ctx, "status:update", a.statusPayload(st, connected, count))
+}
+
+func (a *App) readHardwareStatus() (string, bool, int) {
+	st := bluetooth.State()
+	count := controller.ConnectedCount()
+	return st, st == "on" && bluetooth.AnyConnectedDevice(), count
+}
+
+func (a *App) statusPayload(bt string, btConnected bool, controllerCount int) map[string]any {
+	return map[string]any{
+		"bt":              bt,
+		"btConnected":     btConnected,
+		"controllerCount": controllerCount,
+		"debug":           a.config.Debug,
+	}
 }
 
 // Logging wrappers

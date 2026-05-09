@@ -2,11 +2,9 @@ package main
 
 import (
 	"embed"
-	"fmt"
 	cacheassets "launcher/internal/assets"
 	"launcher/internal/jsonx"
 	"os"
-	"time"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -18,6 +16,8 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+var appVersion = "0.25"
 
 func main() {
 	defer lgx.RecoverPanic("startup")
@@ -33,16 +33,15 @@ func main() {
 	app := NewApp(&config, thumbnailDir, cacheassets.ThumbnailURLPrefix)
 
 	// Enable debug mode if specified in config
-	ts := time.Now().UnixMilli()
 	logFileName := "launcher.log"
 	if config.Debug {
-		logFileName = fmt.Sprintf("debug-%v.log", ts)
+		logFileName = "stagebox-debug.log"
 	}
 	if err := lgx.Init(config.Debug, logFileName, true); err != nil {
 		lgx.Errorf("failed to open log file at default path: %v", err)
 	}
 	lgx.SetLevel("debug")
-	lgx.Info("launcher starting…")
+	lgx.Infof("launcher starting version=%s pid=%d", appVersion, os.Getpid())
 
 	// Create application with options
 	err := wails.Run(&options.App{

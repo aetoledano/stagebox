@@ -5,6 +5,8 @@ package controller
 import (
 	"context"
 	"math"
+	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -15,8 +17,19 @@ import (
 )
 
 var (
-	xinput         *windows.LazyDLL
-	xinputGetState *windows.LazyProc
+	xinput                       *windows.LazyDLL
+	xinputGetState               *windows.LazyProc
+	user32                       = windows.NewLazySystemDLL("user32.dll")
+	procGetCursor                = user32.NewProc("GetCursorPos")
+	procSetCursor                = user32.NewProc("SetCursorPos")
+	procMouseEvent               = user32.NewProc("mouse_event")
+	procKeybdEvent               = user32.NewProc("keybd_event")
+	procEnumWindows              = user32.NewProc("EnumWindows")
+	procGetWindowThreadProcessID = user32.NewProc("GetWindowThreadProcessId")
+	procIsWindowVisible          = user32.NewProc("IsWindowVisible")
+	procSendMessage              = user32.NewProc("SendMessageW")
+	procSetForegroundWindow      = user32.NewProc("SetForegroundWindow")
+	procShowWindow               = user32.NewProc("ShowWindow")
 )
 
 type xinputGamepad struct {
@@ -42,10 +55,89 @@ const (
 	XINPUT_GAMEPAD_RIGHT_SHOULDER = 0x0200
 	XINPUT_GAMEPAD_A              = 0x1000
 	XINPUT_GAMEPAD_B              = 0x2000
+	XINPUT_GAMEPAD_X              = 0x4000
+	XINPUT_GAMEPAD_Y              = 0x8000
 	XINPUT_GAMEPAD_START          = 0x0010
 	XINPUT_GAMEPAD_BACK           = 0x0020
+	XINPUT_GAMEPAD_LEFT_THUMB     = 0x0040
+	XINPUT_GAMEPAD_RIGHT_THUMB    = 0x0080
 	ERROR_DEVICE_NOT_CONNECTED    = 1167
+
+	mouseEventLeftDown   = 0x0002
+	mouseEventLeftUp     = 0x0004
+	mouseEventRightDown  = 0x0008
+	mouseEventRightUp    = 0x0010
+	mouseEventMiddleDown = 0x0020
+	mouseEventMiddleUp   = 0x0040
+	keyEventKeyUp        = 0x0002
+	vkShift              = 0x10
+	vkTab                = 0x09
+	vkReturn             = 0x0D
+	vkEscape             = 0x1B
+	vkSpace              = 0x20
+	vkLeft               = 0x25
+	vkUp                 = 0x26
+	vkRight              = 0x27
+	vkDown               = 0x28
+	vkDelete             = 0x2E
+	vk0                  = 0x30
+	vk9                  = 0x39
+	vkA                  = 0x41
+	vkZ                  = 0x5A
+	vkNumpad0            = 0x60
+	vkF1                 = 0x70
+	vkF12                = 0x7B
+	vkLeftShift          = 0xA0
+	vkRightShift         = 0xA1
+	vkLeftControl        = 0xA2
+	vkRightControl       = 0xA3
+	vkLeftAlt            = 0xA4
+	vkRightAlt           = 0xA5
+	wmNextDlgCtl         = 0x0028
+	swShow               = 5
 )
+
+const (
+	triggerThreshold = 30
+)
+
+type point struct {
+	X int32
+	Y int32
+}
+
+type GameKeyMap struct {
+	Buttons          map[string][]string
+	LeftStick        map[string][]string
+	RightStick       map[string][]string
+	Mouse            string
+	MouseSensitivity int
+}
+
+type gameKeyBinding struct {
+	source    gameInputSource
+	button    uint16
+	direction string
+	vk        byte
+	mouse     string
+}
+
+type gameInputSource int
+
+const (
+	gameInputButton gameInputSource = iota
+	gameInputLeftStick
+	gameInputRightStick
+	gameInputLeftTrigger
+	gameInputRightTrigger
+)
+
+type gameStickKeyState struct {
+	up    bool
+	down  bool
+	left  bool
+	right bool
+}
 
 func loadXInput() error {
 	var err error
@@ -67,13 +159,24 @@ func loadXInput() error {
 }
 
 type XInputBridge struct {
-	ctx    context.Context
-	paused atomic.Int32 // 0 = running, 1 = paused
-	quit   chan struct{}
+	ctx            context.Context
+	paused         atomic.Int32 // 0 = running, 1 = paused
+	quit           chan struct{}
+	mouse          atomic.Int32 // 0 = launcher events, 1 = OS cursor mode
+	keyboard       atomic.Int32 // 0 = launcher events, 1 = pairing keyboard mode
+	gameKeys       atomic.Int32 // 0 = launcher events, 1 = game key-map mode
+	inputTargetPID atomic.Uint32
+	keyBindings    []gameKeyBinding
+	keyBindingsMu  sync.Mutex
+	activeGameKeys map[byte]bool
+	mouseStick     string
+	mouseStepX     int
+	mouseStepY     int
 	// edge/hold state (cleared when paused)
 	prevButtons uint16
 	holdDir     string
 	nextRepeat  time.Time
+	prevGamepad xinputGamepad
 	activeIndex uint32
 	killCombo   time.Time
 	killArmed   bool
@@ -98,7 +201,148 @@ func (b *XInputBridge) Pause() {
 	b.holdDir = ""
 	b.nextRepeat = time.Time{}
 }
-func (b *XInputBridge) Resume() { b.paused.Store(0) }
+func (b *XInputBridge) Resume()          { b.paused.Store(0) }
+func (b *XInputBridge) EnableMouseMode() { b.EnableMouseModeForPID(0) }
+func (b *XInputBridge) EnableMouseModeForPID(pid uint32) {
+	b.inputTargetPID.Store(pid)
+	b.gameKeys.Store(0)
+	b.keyboard.Store(0)
+	b.mouse.Store(1)
+	b.prevButtons = 0
+	b.holdDir = ""
+	b.nextRepeat = time.Time{}
+}
+func (b *XInputBridge) DisableMouseMode() {
+	b.mouse.Store(0)
+	b.keyboard.Store(0)
+	b.gameKeys.Store(0)
+	b.inputTargetPID.Store(0)
+	b.clearGameKeyMap()
+	b.mouseStick = ""
+	b.mouseStepX = 0
+	b.mouseStepY = 0
+	b.prevButtons = 0
+	b.holdDir = ""
+	b.nextRepeat = time.Time{}
+}
+func (b *XInputBridge) EnablePairingKeyboardModeForPID(pid uint32) {
+	b.inputTargetPID.Store(pid)
+	b.mouse.Store(0)
+	b.gameKeys.Store(0)
+	b.clearGameKeyMap()
+	b.keyboard.Store(1)
+	b.prevButtons = 0
+	b.holdDir = ""
+	b.nextRepeat = time.Time{}
+}
+func (b *XInputBridge) DisablePairingKeyboardMode() {
+	b.keyboard.Store(0)
+	b.mouse.Store(0)
+	b.gameKeys.Store(0)
+	b.inputTargetPID.Store(0)
+	b.prevButtons = 0
+	b.holdDir = ""
+	b.nextRepeat = time.Time{}
+}
+func (b *XInputBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
+	bindings := buildGameKeyBindings(keyMap)
+	mouseStick := normalizeInputName(keyMap.Mouse)
+	if mouseStick != "leftstick" && mouseStick != "rightstick" {
+		mouseStick = ""
+	}
+	if len(bindings) == 0 && mouseStick == "" {
+		return false
+	}
+	b.clearGameKeyMap()
+	b.keyBindingsMu.Lock()
+	b.keyBindings = bindings
+	b.activeGameKeys = map[byte]bool{}
+	b.keyBindingsMu.Unlock()
+	b.mouseStick = mouseStick
+
+	base := keyMap.MouseSensitivity
+	if base <= 0 {
+		base = 14
+	}
+	if base > 40 {
+		base = 40
+	}
+
+	b.mouseStepX = base
+	b.mouseStepY = base / 2
+	if b.mouseStepY < 1 {
+		b.mouseStepY = 1
+	}
+
+	b.inputTargetPID.Store(0)
+	b.mouse.Store(0)
+	b.keyboard.Store(0)
+	b.gameKeys.Store(1)
+	b.prevButtons = 0
+	b.holdDir = ""
+	b.nextRepeat = time.Time{}
+	return true
+}
+func (b *XInputBridge) DisableGameKeyMap() {
+	b.gameKeys.Store(0)
+	b.clearGameKeyMap()
+	b.mouseStick = ""
+	b.mouseStepX = 0
+	b.mouseStepY = 0
+	b.prevButtons = 0
+	b.holdDir = ""
+	b.nextRepeat = time.Time{}
+}
+
+func (b *XInputBridge) clearGameKeyMap() {
+	b.keyBindingsMu.Lock()
+	defer b.keyBindingsMu.Unlock()
+	for vk := range b.activeGameKeys {
+		switch vk {
+		case 0xF0:
+			mouseButtonUp("left")
+		case 0xF1:
+			mouseButtonUp("right")
+		case 0xF2:
+			mouseButtonUp("middle")
+		default:
+			keyUp(vk)
+		}
+	}
+	b.keyBindings = nil
+	b.activeGameKeys = nil
+}
+
+func FocusProcessWindow(pid uint32) bool {
+	return focusProcessWindow(pid)
+}
+
+func HasVisibleWindowForPID(pid uint32) bool {
+	return findProcessWindow(pid) != 0
+}
+
+func MoveCursorTo(x int, y int) {
+	procSetCursor.Call(uintptr(int32(x)), uintptr(int32(y)))
+}
+
+func ConnectedCount() int {
+	if xinputGetState == nil {
+		if err := loadXInput(); err != nil {
+			return 0
+		}
+	}
+
+	count := 0
+	var st xinputState
+	for i := uint32(0); i < 4; i++ {
+		r1, _, _ := xinputGetState.Call(uintptr(i), uintptr(unsafe.Pointer(&st)))
+		if r1 == 0 {
+			count++
+		}
+	}
+	return count
+}
+
 func (b *XInputBridge) Stop() {
 	select {
 	case <-b.quit:
@@ -149,6 +393,25 @@ func (b *XInputBridge) loop() {
 		gp := st.Gamepad
 		buttons := gp.wButtons
 		just := func(mask uint16) bool { return (buttons&mask) != 0 && (b.prevButtons&mask) == 0 }
+
+		if b.mouse.Load() == 1 {
+			b.handleMouseMode(gp, buttons, just)
+			b.prevGamepad = gp
+			b.prevButtons = buttons
+			continue
+		}
+		if b.keyboard.Load() == 1 {
+			b.handlePairingKeyboardMode(gp, buttons, just)
+			b.prevGamepad = gp
+			b.prevButtons = buttons
+			continue
+		}
+		if b.gameKeys.Load() == 1 {
+			b.handleGameKeyMap(gp, buttons, just)
+			b.prevGamepad = gp
+			b.prevButtons = buttons
+			continue
+		}
 
 		both := (buttons&XINPUT_GAMEPAD_START) != 0 && (buttons&XINPUT_GAMEPAD_BACK) != 0
 		if both {
@@ -221,6 +484,9 @@ func (b *XInputBridge) loop() {
 		if just(XINPUT_GAMEPAD_B) {
 			runtime.EventsEmit(b.ctx, "pad:press", "B")
 		}
+		if just(XINPUT_GAMEPAD_START) && (buttons&XINPUT_GAMEPAD_BACK) == 0 {
+			runtime.EventsEmit(b.ctx, "pad:press", "START")
+		}
 		if just(XINPUT_GAMEPAD_LEFT_SHOULDER) {
 			runtime.EventsEmit(b.ctx, "pad:press", "LB")
 		}
@@ -228,6 +494,620 @@ func (b *XInputBridge) loop() {
 			runtime.EventsEmit(b.ctx, "pad:press", "RB")
 		}
 
+		b.prevGamepad = gp
 		b.prevButtons = buttons
 	}
+}
+
+func (b *XInputBridge) handleMouseMode(gp xinputGamepad, buttons uint16, just func(uint16) bool) {
+	const (
+		stickDeadzone = 6500
+		maxStep       = 14
+		dpadStep      = 9
+	)
+
+	dx, dy := 0, 0
+	lx, ly := int(gp.sThumbLX), int(gp.sThumbLY)
+	if lx*lx+ly*ly >= stickDeadzone*stickDeadzone {
+		dx += lx * maxStep / 32767
+		dy -= ly * maxStep / 32767
+	}
+	if buttons&XINPUT_GAMEPAD_DPAD_LEFT != 0 {
+		dx -= dpadStep
+	}
+	if buttons&XINPUT_GAMEPAD_DPAD_RIGHT != 0 {
+		dx += dpadStep
+	}
+	if buttons&XINPUT_GAMEPAD_DPAD_UP != 0 {
+		dy -= dpadStep
+	}
+	if buttons&XINPUT_GAMEPAD_DPAD_DOWN != 0 {
+		dy += dpadStep
+	}
+	if dx != 0 || dy != 0 {
+		moveCursor(dx, dy)
+	}
+	if just(XINPUT_GAMEPAD_A) {
+		leftClick()
+	}
+	if just(XINPUT_GAMEPAD_B) {
+		FocusProcessWindow(b.inputTargetPID.Load())
+		pressEscape()
+	}
+}
+
+func (b *XInputBridge) handlePairingKeyboardMode(gp xinputGamepad, buttons uint16, just func(uint16) bool) {
+	const stickDeadzone = 8500
+
+	pid := b.inputTargetPID.Load()
+	if just(XINPUT_GAMEPAD_A) {
+		pressPairingKey(pid, vkReturn)
+	}
+	if just(XINPUT_GAMEPAD_B) {
+		pressPairingKey(pid, vkEscape)
+	}
+
+	held := ""
+	if buttons&XINPUT_GAMEPAD_DPAD_UP != 0 {
+		held = "arrow-up"
+	} else if buttons&XINPUT_GAMEPAD_DPAD_DOWN != 0 {
+		held = "arrow-down"
+	} else if buttons&XINPUT_GAMEPAD_DPAD_LEFT != 0 {
+		held = "arrow-left"
+	} else if buttons&XINPUT_GAMEPAD_DPAD_RIGHT != 0 {
+		held = "arrow-right"
+	} else {
+		lx := int(gp.sThumbLX)
+		if lx <= -stickDeadzone {
+			held = "tab-left"
+		} else if lx >= stickDeadzone {
+			held = "tab-right"
+		}
+	}
+
+	if held == "" {
+		b.holdDir = ""
+		return
+	}
+	if b.holdDir != held {
+		b.holdDir = held
+		b.nextRepeat = time.Now().Add(300 * time.Millisecond)
+		sendPairingDirection(pid, held)
+		return
+	}
+	if time.Now().After(b.nextRepeat) {
+		b.nextRepeat = time.Now().Add(160 * time.Millisecond)
+		sendPairingDirection(pid, held)
+	}
+}
+
+func (b *XInputBridge) handleGameKeyMap(gp xinputGamepad, buttons uint16, just func(uint16) bool) {
+	b.handleGameMouse(gp)
+
+	b.keyBindingsMu.Lock()
+	defer b.keyBindingsMu.Unlock()
+	if b.activeGameKeys == nil {
+		b.activeGameKeys = map[byte]bool{}
+	}
+
+	for _, binding := range b.keyBindings {
+		pressed, wasPressed := b.gameBindingState(binding, gp, buttons)
+		if binding.mouse != "" {
+			if pressed && !b.activeGameKeys[binding.activeKey()] {
+				mouseButtonDown(binding.mouse)
+				b.activeGameKeys[binding.activeKey()] = true
+			} else if !pressed && wasPressed && !b.mappedMouseStillPressed(binding.mouse, gp, buttons) {
+				mouseButtonUp(binding.mouse)
+				delete(b.activeGameKeys, binding.activeKey())
+			}
+			continue
+		}
+		if pressed && !b.activeGameKeys[binding.activeKey()] {
+			keyDown(binding.vk)
+			b.activeGameKeys[binding.activeKey()] = true
+		} else if !pressed && wasPressed && !b.mappedVKStillPressed(binding.vk, gp, buttons) {
+			keyUp(binding.vk)
+			delete(b.activeGameKeys, binding.activeKey())
+		}
+	}
+}
+
+func (b *XInputBridge) handleGameMouse(gp xinputGamepad) {
+	if b.mouseStick == "" {
+		return
+	}
+
+	dx, dy := 0, 0
+	if b.mouseStick == "leftstick" {
+		dx, dy = stickMouseDelta(gp.sThumbLX, gp.sThumbLY, b.mouseStepX, b.mouseStepY)
+	} else {
+		dx, dy = stickMouseDelta(gp.sThumbRX, gp.sThumbRY, b.mouseStepX, b.mouseStepY)
+	}
+
+	if dx != 0 || dy != 0 {
+		moveCursor(dx, dy)
+	}
+}
+
+func stickMouseDelta(x int16, y int16, maxStepX int, maxStepY int) (int, int) {
+	const stickDeadzone = 6500
+
+	lx, ly := int(x), int(y)
+	if lx*lx+ly*ly < stickDeadzone*stickDeadzone {
+		return 0, 0
+	}
+
+	dx := lx * maxStepX / 32767
+	dy := -ly * maxStepY / 32767
+
+	return dx, dy
+}
+
+func (b *XInputBridge) mappedVKStillPressed(vk byte, gp xinputGamepad, buttons uint16) bool {
+	for _, binding := range b.keyBindings {
+		pressed, _ := b.gameBindingState(binding, gp, buttons)
+		if binding.mouse == "" && binding.vk == vk && pressed {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *XInputBridge) mappedMouseStillPressed(mouse string, gp xinputGamepad, buttons uint16) bool {
+	for _, binding := range b.keyBindings {
+		pressed, _ := b.gameBindingState(binding, gp, buttons)
+		if binding.mouse == mouse && pressed {
+			return true
+		}
+	}
+	return false
+}
+
+func (binding gameKeyBinding) activeKey() byte {
+	if binding.mouse == "" {
+		return binding.vk
+	}
+	switch binding.mouse {
+	case "left":
+		return 0xF0
+	case "right":
+		return 0xF1
+	case "middle":
+		return 0xF2
+	default:
+		return 0
+	}
+}
+
+func (b *XInputBridge) gameBindingState(binding gameKeyBinding, gp xinputGamepad, buttons uint16) (bool, bool) {
+	switch binding.source {
+	case gameInputButton:
+		return buttons&binding.button != 0, b.prevButtons&binding.button != 0
+	case gameInputLeftStick:
+		cur := stickDirections(gp.sThumbLX, gp.sThumbLY)
+		prev := stickDirections(b.prevGamepad.sThumbLX, b.prevGamepad.sThumbLY)
+		return directionPressed(binding.direction, cur), directionPressed(binding.direction, prev)
+	case gameInputRightStick:
+		cur := stickDirections(gp.sThumbRX, gp.sThumbRY)
+		prev := stickDirections(b.prevGamepad.sThumbRX, b.prevGamepad.sThumbRY)
+		return directionPressed(binding.direction, cur), directionPressed(binding.direction, prev)
+
+	case gameInputLeftTrigger:
+		return gp.bLeftTrigger > triggerThreshold, b.prevGamepad.bLeftTrigger > triggerThreshold
+
+	case gameInputRightTrigger:
+		return gp.bRightTrigger > triggerThreshold, b.prevGamepad.bRightTrigger > triggerThreshold
+
+	default:
+		return false, false
+	}
+}
+
+func buildGameKeyBindings(keyMap GameKeyMap) []gameKeyBinding {
+	total := countGameBindings(keyMap)
+	if total == 0 {
+		return nil
+	}
+
+	bindings := make([]gameKeyBinding, 0, total)
+
+	for buttonName, keys := range keyMap.Buttons {
+		source, button, ok := gameButtonSource(buttonName)
+		if !ok {
+			continue
+		}
+
+		for _, keyName := range keys {
+			if mouse, ok := mouseButtonName(keyName); ok {
+				bindings = append(bindings, gameKeyBinding{
+					source: source,
+					button: button,
+					mouse:  mouse,
+				})
+				continue
+			}
+
+			vk, ok := virtualKey(keyName)
+			if !ok {
+				continue
+			}
+
+			bindings = append(bindings, gameKeyBinding{
+				source: source,
+				button: button,
+				vk:     vk,
+			})
+		}
+	}
+
+	bindings = append(bindings, buildStickKeyBindings(gameInputLeftStick, keyMap.LeftStick)...)
+	bindings = append(bindings, buildStickKeyBindings(gameInputRightStick, keyMap.RightStick)...)
+
+	return bindings
+}
+
+func gameButtonSource(name string) (gameInputSource, uint16, bool) {
+	switch normalizeInputName(name) {
+	case "lt", "l2", "lefttrigger":
+		return gameInputLeftTrigger, 0, true
+
+	case "rt", "r2", "righttrigger":
+		return gameInputRightTrigger, 0, true
+	}
+
+	button, ok := gameButtonMask(name)
+	if !ok {
+		return gameInputButton, 0, false
+	}
+
+	return gameInputButton, button, true
+}
+
+func buildStickKeyBindings(source gameInputSource, stickMap map[string][]string) []gameKeyBinding {
+	bindings := make([]gameKeyBinding, 0, len(stickMap))
+	for dirName, keys := range stickMap {
+		for _, keyName := range keys {
+			dir, ok := gameStickDirection(dirName)
+			if !ok {
+				continue
+			}
+			if mouse, ok := mouseButtonName(keyName); ok {
+				bindings = append(bindings, gameKeyBinding{source: source, direction: dir, mouse: mouse})
+				continue
+			}
+			vk, ok := virtualKey(keyName)
+			if !ok {
+				continue
+			}
+			bindings = append(bindings, gameKeyBinding{source: source, direction: dir, vk: vk})
+		}
+	}
+	return bindings
+}
+
+func gameStickDirection(name string) (string, bool) {
+	switch normalizeInputName(name) {
+	case "up":
+		return "up", true
+	case "down":
+		return "down", true
+	case "left":
+		return "left", true
+	case "right":
+		return "right", true
+	default:
+		return "", false
+	}
+}
+
+func stickDirections(x int16, y int16) gameStickKeyState {
+	const stickDeadzone = 12000
+	lx, ly := int(x), int(y)
+	if lx*lx+ly*ly < stickDeadzone*stickDeadzone {
+		return gameStickKeyState{}
+	}
+	if math.Abs(float64(lx)) >= math.Abs(float64(ly)) {
+		if lx < 0 {
+			return gameStickKeyState{left: true}
+		}
+		return gameStickKeyState{right: true}
+	}
+	if ly > 0 {
+		return gameStickKeyState{up: true}
+	}
+	return gameStickKeyState{down: true}
+}
+
+func directionPressed(direction string, state gameStickKeyState) bool {
+	switch direction {
+	case "up":
+		return state.up
+	case "down":
+		return state.down
+	case "left":
+		return state.left
+	case "right":
+		return state.right
+	default:
+		return false
+	}
+}
+
+func gameButtonMask(name string) (uint16, bool) {
+	switch normalizeInputName(name) {
+	case "a":
+		return XINPUT_GAMEPAD_A, true
+	case "b":
+		return XINPUT_GAMEPAD_B, true
+	case "x":
+		return XINPUT_GAMEPAD_X, true
+	case "y":
+		return XINPUT_GAMEPAD_Y, true
+	case "l3", "leftstick", "leftthumb", "leftstickpress", "leftthumbpress":
+		return XINPUT_GAMEPAD_LEFT_THUMB, true
+	case "r3", "rightstick", "rightthumb", "rightstickpress", "rightthumbpress":
+		return XINPUT_GAMEPAD_RIGHT_THUMB, true
+	case "start":
+		return XINPUT_GAMEPAD_START, true
+	case "back", "select":
+		return XINPUT_GAMEPAD_BACK, true
+	case "lb", "leftbumper", "leftshoulder":
+		return XINPUT_GAMEPAD_LEFT_SHOULDER, true
+	case "rb", "rightbumper", "rightshoulder":
+		return XINPUT_GAMEPAD_RIGHT_SHOULDER, true
+	case "dpadup", "up":
+		return XINPUT_GAMEPAD_DPAD_UP, true
+	case "dpaddown", "down":
+		return XINPUT_GAMEPAD_DPAD_DOWN, true
+	case "dpadleft", "left":
+		return XINPUT_GAMEPAD_DPAD_LEFT, true
+	case "dpadright", "right":
+		return XINPUT_GAMEPAD_DPAD_RIGHT, true
+	default:
+		return 0, false
+	}
+}
+
+func virtualKey(name string) (byte, bool) {
+	n := normalizeInputName(name)
+	switch n {
+	case "space":
+		return vkSpace, true
+	case "enter", "return":
+		return vkReturn, true
+	case "escape", "esc":
+		return vkEscape, true
+	case "tab":
+		return vkTab, true
+	case "shift", "leftshift":
+		return vkLeftShift, true
+	case "rightshift":
+		return vkRightShift, true
+	case "control", "ctrl", "leftcontrol", "leftctrl":
+		return vkLeftControl, true
+	case "rightcontrol", "rightctrl":
+		return vkRightControl, true
+	case "alt", "leftalt":
+		return vkLeftAlt, true
+	case "rightalt":
+		return vkRightAlt, true
+	case "arrowup", "up":
+		return vkUp, true
+	case "arrowdown", "down":
+		return vkDown, true
+	case "arrowleft", "left":
+		return vkLeft, true
+	case "arrowright", "right":
+		return vkRight, true
+	case "delete", "del":
+		return vkDelete, true
+	}
+
+	if len(n) == 1 {
+		c := n[0]
+		switch {
+		case c >= 'a' && c <= 'z':
+			return vkA + (c - 'a'), true
+		case c >= '0' && c <= '9':
+			return vk0 + (c - '0'), true
+		}
+	}
+	if strings.HasPrefix(n, "f") && len(n) <= 3 {
+		num := 0
+		for _, ch := range n[1:] {
+			if ch < '0' || ch > '9' {
+				return 0, false
+			}
+			num = num*10 + int(ch-'0')
+		}
+		if num >= 1 && num <= 12 {
+			return vkF1 + byte(num-1), true
+		}
+	}
+	if strings.HasPrefix(n, "numpad") && len(n) == len("numpad0") {
+		c := n[len(n)-1]
+		if c >= '0' && c <= '9' {
+			return vkNumpad0 + (c - '0'), true
+		}
+	}
+
+	return 0, false
+}
+
+func mouseButtonName(name string) (string, bool) {
+	switch normalizeInputName(name) {
+	case "mouseleft", "leftmouse", "btnleft", "leftclick":
+		return "left", true
+	case "mouseright", "rightmouse", "btnright", "rightclick":
+		return "right", true
+	case "mousemiddle", "middlemouse", "btnmiddle", "middleclick":
+		return "middle", true
+	default:
+		return "", false
+	}
+}
+
+func normalizeInputName(name string) string {
+	n := strings.ToLower(strings.TrimSpace(name))
+	n = strings.ReplaceAll(n, "_", "")
+	n = strings.ReplaceAll(n, "-", "")
+	n = strings.ReplaceAll(n, " ", "")
+	return n
+}
+
+func sendPairingDirection(pid uint32, dir string) {
+	switch dir {
+	case "arrow-up":
+		pressPairingKey(pid, vkUp)
+	case "arrow-down":
+		pressPairingKey(pid, vkDown)
+	case "arrow-left":
+		pressPairingKey(pid, vkLeft)
+	case "arrow-right":
+		pressPairingKey(pid, vkRight)
+	case "tab-left":
+		stepPairingDialogFocus(pid, true)
+	case "tab-right":
+		stepPairingDialogFocus(pid, false)
+	}
+}
+
+func pressPairingKey(pid uint32, vk byte) {
+	FocusProcessWindow(pid)
+	pressKey(vk)
+}
+
+func pressPairingShiftTab(pid uint32) {
+	FocusProcessWindow(pid)
+	procKeybdEvent.Call(vkShift, 0, 0, 0)
+	pressKey(vkTab)
+	procKeybdEvent.Call(vkShift, 0, keyEventKeyUp, 0)
+}
+
+func stepPairingDialogFocus(pid uint32, previous bool) {
+	hwnd := findProcessWindow(pid)
+	if hwnd == 0 {
+		if previous {
+			pressPairingShiftTab(pid)
+			return
+		}
+		pressPairingKey(pid, vkTab)
+		return
+	}
+
+	procShowWindow.Call(hwnd, swShow)
+	procSetForegroundWindow.Call(hwnd)
+	direction := uintptr(0)
+	if previous {
+		direction = 1
+	}
+	procSendMessage.Call(hwnd, wmNextDlgCtl, direction, 0)
+}
+
+type enumWindowSearch struct {
+	pid  uint32
+	hwnd uintptr
+}
+
+func focusProcessWindow(pid uint32) bool {
+	if pid == 0 {
+		return false
+	}
+	hwnd := findProcessWindow(pid)
+	if hwnd == 0 {
+		return false
+	}
+	procShowWindow.Call(hwnd, swShow)
+	procSetForegroundWindow.Call(hwnd)
+	return true
+}
+
+func findProcessWindow(pid uint32) uintptr {
+	if pid == 0 {
+		return 0
+	}
+	search := &enumWindowSearch{pid: pid}
+	procEnumWindows.Call(windows.NewCallback(func(hwnd uintptr, lparam uintptr) uintptr {
+		s := (*enumWindowSearch)(unsafe.Pointer(lparam))
+		var windowPID uint32
+		procGetWindowThreadProcessID.Call(hwnd, uintptr(unsafe.Pointer(&windowPID)))
+		if windowPID == s.pid {
+			visible, _, _ := procIsWindowVisible.Call(hwnd)
+			if visible != 0 {
+				s.hwnd = hwnd
+				return 0
+			}
+		}
+		return 1
+	}), uintptr(unsafe.Pointer(search)))
+	return search.hwnd
+}
+
+func moveCursor(dx int, dy int) {
+	var p point
+	r, _, _ := procGetCursor.Call(uintptr(unsafe.Pointer(&p)))
+	if r == 0 {
+		return
+	}
+	procSetCursor.Call(uintptr(int32(p.X)+int32(dx)), uintptr(int32(p.Y)+int32(dy)))
+}
+
+func leftClick() {
+	procMouseEvent.Call(mouseEventLeftDown, 0, 0, 0, 0)
+	procMouseEvent.Call(mouseEventLeftUp, 0, 0, 0, 0)
+}
+
+func mouseButtonDown(button string) {
+	switch button {
+	case "left":
+		procMouseEvent.Call(mouseEventLeftDown, 0, 0, 0, 0)
+	case "right":
+		procMouseEvent.Call(mouseEventRightDown, 0, 0, 0, 0)
+	case "middle":
+		procMouseEvent.Call(mouseEventMiddleDown, 0, 0, 0, 0)
+	}
+}
+
+func mouseButtonUp(button string) {
+	switch button {
+	case "left":
+		procMouseEvent.Call(mouseEventLeftUp, 0, 0, 0, 0)
+	case "right":
+		procMouseEvent.Call(mouseEventRightUp, 0, 0, 0, 0)
+	case "middle":
+		procMouseEvent.Call(mouseEventMiddleUp, 0, 0, 0, 0)
+	}
+}
+
+func pressEscape() {
+	pressKey(vkEscape)
+}
+
+func pressKey(vk byte) {
+	keyDown(vk)
+	keyUp(vk)
+}
+
+func keyDown(vk byte) {
+	procKeybdEvent.Call(uintptr(vk), 0, 0, 0)
+}
+
+func keyUp(vk byte) {
+	procKeybdEvent.Call(uintptr(vk), 0, keyEventKeyUp, 0)
+}
+
+func countGameBindings(keyMap GameKeyMap) int {
+	total := 0
+
+	for _, keys := range keyMap.Buttons {
+		total += len(keys)
+	}
+	for _, keys := range keyMap.LeftStick {
+		total += len(keys)
+	}
+	for _, keys := range keyMap.RightStick {
+		total += len(keys)
+	}
+
+	return total
 }

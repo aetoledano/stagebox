@@ -3,15 +3,11 @@
 import {uuid} from '../models';
 import {games} from '../models';
 
-export function AutoPairRunning():Promise<boolean>;
-
-export function AutoPairStart(arg1:string):Promise<void>;
-
-export function AutoPairStop():Promise<void>;
-
 export function EnsureBT():Promise<void>;
 
 export function Error(arg1:any):Promise<void>;
+
+export function ExitLauncher():Promise<void>;
 
 export function Explorer():Promise<void>;
 
@@ -24,6 +20,8 @@ export function KillRunning():Promise<void>;
 export function Launch(arg1:uuid.UUID):Promise<void>;
 
 export function LoadGames():Promise<Record<uuid.UUID, games.GameData>>;
+
+export function OpenBluetoothPairing():Promise<void>;
 
 export function Restart():Promise<void>;
 

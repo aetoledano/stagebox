@@ -18,7 +18,7 @@ The project is Windows-focused at runtime, but many platform-specific tools have
 - `internal/jsonx`: strict JSON file loader used by config and game metadata loading.
 - `internal/logx`: small logging package with file/stdout support and panic recovery.
 - `internal/platform`: platform integration packages. Windows files contain Win32/PowerShell integrations; `*_stub.go` files keep non-Windows builds safe.
-  - `bluetooth`: Bluetooth state, bring-up, and auto-pairing.
+  - `bluetooth`: Bluetooth state, bring-up, and connected-device detection.
   - `controller`: XInput polling and Wails gamepad events.
   - `cursor`: cursor visibility helpers.
   - `display`: display resolution selection.
@@ -60,7 +60,26 @@ Expected fields map to `internal/games.GameData`:
   "image": "cover.jpg",
   "name": "Game Name",
   "description": "Optional description",
-  "showCursor": false
+  "showCursor": false,
+  "keyMap": {
+    "mouse": "rightStick",
+    "mouseSensitivity": 14,
+    "buttons": {
+      "A": ["Space", "Enter"],
+      "B": ["Escape"],
+      "L3": ["Shift"],
+      "R3": ["E"],
+      "LT": ["MouseRight"],
+      "RT": ["MouseLeft"],
+      "DPAD_UP": ["Z", "ArrowUp"]
+    },
+    "leftStick": {
+      "up": ["W"],
+      "down": ["S"],
+      "left": ["A"],
+      "right": ["D"]
+    }
+  }
 }
 ```
 
@@ -71,6 +90,7 @@ Notes:
 - `executable`, `image`, and `startsOn` are resolved relative to the game directory.
 - Images are processed into cached thumbnails. The frontend receives `thumbnailUrl` and `imageHash`, not base64 image data.
 - JPEG, PNG, GIF, WebP, and AVIF source images are supported for thumbnail generation.
+- `keyMap` is optional and embedded in `lc.json`. The game key-map path is considered only when the `keyMap` key is present; if it is omitted the controller bridge is fully paused during gameplay as before. `keyMap.buttons` maps discrete gamepad buttons to arrays of key or mouse targets, so one controller input can press multiple targets. `keyMap.leftStick` and `keyMap.rightStick` map stick directions (`up`, `down`, `left`, `right`) to arrays of normal key targets. `keyMap.mouse` can be `leftStick` or `rightStick` to move the OS cursor; `mouseSensitivity` controls X-axis speed from 1-40 while Y-axis speed is intentionally half as fast, with a minimum of 1. If `keyMap` is present but has no valid bindings and no valid mouse stick, launch falls back to paused controller behavior. Supported gamepad keys include `A`, `B`, `X`, `Y`, `START`, `BACK`/`SELECT`, `LB`, `RB`, `LT`/`L2`/`LEFTTRIGGER`, `RT`/`R2`/`RIGHTTRIGGER`, `L3`, `R3`, and `DPAD_UP`/`DOWN`/`LEFT`/`RIGHT`. Supported keyboard targets include letters, digits, `Space`, `Enter`, `Escape`, `Tab`, `Shift`, `Control`, `Alt`, arrow keys, `Delete`, `F1`-`F12`, and `Numpad0`-`Numpad9`. Supported mouse button targets are `MouseLeft`, `MouseRight`, and `MouseMiddle`. See `keypad-sample.json` for a working structured mapping sample.
 
 ## Frontend Notes
 
@@ -79,7 +99,7 @@ Notes:
 - `frontend/src/main.js` renders the game grid dynamically.
 - `frontend/src/features/controller.js` listens for Wails runtime events:
   - `pad:nav` with `{ dir: "left" | "right" | "up" | "down" }`
-  - `pad:press` with `"A"` or `"KILL"`
+  - `pad:press` with `"A"`, `"B"`, `"START"`, or `"KILL"`
 - `frontend/src/main.js` listens for:
   - `game:loaded` with a single game payload
   - `games:loading` with `{ loading, loaded, total }`
@@ -97,7 +117,15 @@ When adding new backend methods that the frontend calls, update the Go `App` typ
 - `Launch` is asynchronous from the UI perspective. It starts a goroutine that waits for the process and restores the launcher afterward.
 - `KillRunning` only kills the tracked top-level process. It does not currently kill process trees.
 - The XInput bridge emits Wails events and has pause/resume behavior so launcher navigation does not continue while a game is active.
-- Bluetooth and wallpaper code use Win32 APIs directly. Keep Windows-only code behind `//go:build windows` and add or update matching stubs for other platforms.
+- During game launch, the cursor is forced visible only when `showCursor` is true. The Windows cursor helper centers the pointer and injects a tiny synthetic mouse move so mouse-less systems can still materialize the cursor. For games without `showCursor`, the launch path temporarily replaces common Windows system cursors with transparent cursors and reasserts hidden cursor state briefly while the game window settles; system cursors are restored on game exit, startup, shutdown, restart, and debug exit. The launcher WebView also forces `cursor: none` in CSS so its pointer stays hidden even if Windows has a visible cursor. Card selection styling must come from `.gp-focus` or keyboard focus, not `.card:hover`, because invisible cursor position can otherwise make a second card look selected. `keyMap.mouse` can still move the OS cursor, but it does not make the cursor visible by itself. On game exit, mapped inputs are released, the cursor is moved to `(0,0)`, and the cursor is hidden before the launcher window is restored so the grid does not reopen with a hovered card.
+- The XInput Start button opens the centered tools menu directly; B closes the menu.
+- When `Bluetooth Pair` opens `DevicePairingWizard.exe`, the launcher hides, the XInput bridge enters pairing keyboard mode, and the wizard is repeatedly foregrounded while visible. D-pad sends normal arrow keys, left stick left/right cycles dialog focus with Shift+Tab/Tab semantics, A sends Enter, and B sends Esc. Launcher navigation events are suppressed until the wizard window closes; before restoring the launcher the cursor is moved to `(0,0)` and hidden.
+- Bluetooth pairing now uses the Windows pairing wizard bridge for the user-facing flow because it reaches the same shell/device-association path as Explorer. The legacy auto-pair API and abandoned WinRT helper were removed; `internal/platform/bluetooth` now provides Bluetooth state, bring-up, and connected-device detection. Keep Windows-only code behind `//go:build windows` and add or update matching stubs for other platforms.
+- `App.ExitLauncher` is a debug-only helper exposed to the frontend menu as `Debug - Exit Launcher`. It only quits the current Wails process so the Windows bootstrapper can relaunch it without creating a duplicate instance.
+- `App.OpenBluetoothPairing` is exposed as the first menu item, `Bluetooth Pair`. It opens `DevicePairingWizard.exe` to use the same Windows pairing path that Explorer/Settings uses.
+- The pairing wizard lifecycle is guarded against reentry. After the wizard window closes, the launcher terminates a lingering `DevicePairingWizard.exe` process before restoring itself so quick reopen attempts do not wait on Windows' delayed process cleanup.
+- `status:update` includes `controllerCount`, sourced from XInput slots 0-3 on Windows. The controller indicator renders a small inline SVG controller icon plus that count so it can inherit CSS color consistently across Windows/Linux. `btConnected` is Bluetooth-controller-specific, not the generic controller count; the Bluetooth scan filters connected Bluetooth devices by controller-like names/classes and denies adapters/TV/audio/keyboard/mouse devices. It also has a SetupAPI fallback over present `BTHENUM` and `BTHLEDEVICE` devices so DInput/BLE controllers can still make the Bluetooth indicator green when the legacy Bluetooth device API misses them. The Bluetooth indicator is slashed gray when Bluetooth is off/disabled/unknown, plain gray when Bluetooth is on but no Bluetooth controller is connected, and green when a Bluetooth controller is connected.
+- Startup logs include `version=<value>` and `pid=<value>`. `appVersion` uses incremental pre-1.0 values such as `0.01`; keep bumping `0.xx` during Bluetooth iteration and reserve `1.0` for when Bluetooth pairing is fully working. Debug mode writes to `stagebox-debug.log` and truncates that file on each launcher start.
 
 ## Build And Dev Commands
 

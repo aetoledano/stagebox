@@ -1,0 +1,77 @@
+{
+  "description": "Modern Warfare 3 Key Pad Config",
+  "keyMap": {
+    "mouseSensitivity": 10,
+    "mouse": "rightStick",
+    "leftStick": {
+      "up": [
+        "w"
+      ],
+      "down": [
+        "s"
+      ],
+      "left": [
+        "a"
+      ],
+      "right": [
+        "d"
+      ]
+    },
+    "buttons": {
+      "START": [
+        "enter"
+      ],
+      "SELECT": [
+        "escape"
+      ],
+      "A": [
+        "space",
+        "enter"
+      ],
+      "B": [
+        "k"
+      ],
+      "Y": [
+        "tab"
+      ],
+      "X": [
+        "G",
+        "F"
+      ],
+      "L3": [
+        "leftshift"
+      ],
+      "R3": [
+        "e"
+      ],
+      "LB": [
+        "mousemiddle"
+      ],
+      "RB": [
+        "q"
+      ],
+      "LT": [
+        "mouseright"
+      ],
+      "RT": [
+        "mouseleft"
+      ],
+      "DPAD_UP": [
+        "z",
+        "arrowup"
+      ],
+      "DPAD_DOWN": [
+        "x",
+        "arrowdown"
+      ],
+      "DPAD_LEFT": [
+        "v",
+        "arrowleft"
+      ],
+      "DPAD_RIGHT": [
+        "c",
+        "arrowright"
+      ]
+    }
+  }
+}

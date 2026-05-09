@@ -55,6 +55,18 @@ body {
 /* Optional legacy page spacer (kept if you still use .page) */
 .page { position: relative; z-index: 1; padding-top: 72px; }
 
+.pairing-input-shield{
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  background: rgba(0, 0, 0, 0.86);
+  cursor: default;
+}
+
+.pairing-input-shield[hidden]{
+  display: none;
+}
+
 /* Helpers */
 .mdl2 { font-family: "Segoe MDL2 Assets","Segoe UI Symbol",sans-serif; }
 .monoicon { font-family: "Segoe UI Symbol","Segoe UI",system-ui,sans-serif; }

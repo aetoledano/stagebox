@@ -35,14 +35,8 @@ var (
 	procFindFirstDevice *windows.LazyProc
 	procFindNextDevice  *windows.LazyProc
 	procFindDeviceClose *windows.LazyProc
-	procAuthEx          *windows.LazyProc
-	procAuthPIN         *windows.LazyProc
-	procUpdateDevice    *windows.LazyProc
-	procRemoveDevice    *windows.LazyProc
 
 	bluetoothProcsInitialized bool
-	bluetoothHaveAuthEx       bool
-	bluetoothHaveAuthPIN      bool
 )
 
 func initBluetoothProcs() bool {
@@ -63,19 +57,10 @@ func initBluetoothProcs() bool {
 		fd1 := d.NewProc("BluetoothFindFirstDevice")
 		fd2 := d.NewProc("BluetoothFindNextDevice")
 		fdC := d.NewProc("BluetoothFindDeviceClose")
-		ax := d.NewProc("BluetoothAuthenticateDeviceEx")
-		ap := d.NewProc("BluetoothAuthenticateDevice")
-		ud := d.NewProc("BluetoothUpdateDeviceRecord")
-		rd := d.NewProc("BluetoothRemoveDevice")
-
-		// Require the core radios + device enumeration; AuthEx OR PIN is acceptable.
-		authExOK := ax.Find() == nil
-		authPINOK := ap.Find() == nil
 
 		if ff.Find() == nil && fn.Find() == nil && fc.Find() == nil &&
 			ic.Find() == nil &&
-			fd1.Find() == nil && fd2.Find() == nil && fdC.Find() == nil &&
-			(authExOK || authPINOK) && rd.Find() == nil {
+			fd1.Find() == nil && fd2.Find() == nil && fdC.Find() == nil {
 
 			procFindFirstRadio, procFindNextRadio, procFindRadioClose = ff, fn, fc
 			procIsConnectable = ic
@@ -87,13 +72,9 @@ func initBluetoothProcs() bool {
 			}
 
 			procFindFirstDevice, procFindNextDevice, procFindDeviceClose = fd1, fd2, fdC
-			procAuthEx, procAuthPIN = ax, ap
-			procUpdateDevice, procRemoveDevice = ud, rd
 
 			bluetoothProcsInitialized = true
-			bluetoothHaveAuthEx = authExOK
-			bluetoothHaveAuthPIN = authPINOK
-			logx.Debugf("[bt] auth APIs: AuthEx=%v PIN=%v", bluetoothHaveAuthEx, bluetoothHaveAuthPIN)
+			logx.Debug("[bt] Win32 Bluetooth enumeration APIs loaded")
 			return true
 		}
 		return false

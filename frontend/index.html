@@ -13,7 +13,13 @@
         <div class="indicators">
             <span id="clock" class="clock" aria-label="Clock"></span>
             <span id="bt-indicator" class="bti mdl2" title="Bluetooth Indicator">&#xE702;</span>
-            <span id="controller-indicator" class="cmi mdl2" title="Controller Mapper Indicator">🎮</span>
+            <span id="controller-indicator" class="cmi inactive" title="Controllers connected">
+                <svg class="cmi-icon" aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="M7.2 10.1h9.6c2.1 0 3.8 1.6 4 3.7l.2 2.6c.1 1.2-.8 2.2-2 2.2-.6 0-1.1-.2-1.5-.7l-1.8-2h-7.4l-1.8 2c-.4.4-.9.7-1.5.7-1.2 0-2.1-1-2-2.2l.2-2.6c.2-2.1 1.9-3.7 4-3.7Z" />
+                    <path d="M8 12.5v2.8M6.6 13.9h2.8M15.5 13.1h.01M18 15h.01" />
+                </svg>
+                <span class="cmi-count">0</span>
+            </span>
         </div>
 
         <div class="title">
@@ -29,21 +35,25 @@
 
     <div id="tools-menu-overlay" class="menu-overlay" hidden>
         <div class="tools-menu" role="menu" aria-label="Tools menu">
-            <button class="menu-item" id="btn-auto-bt-pair" role="menuitem" aria-label="Auto Bluetooth Pairing">
+            <button class="menu-item" id="btn-debug-bt-pairing" role="menuitem" aria-label="Bluetooth Pair">
                 <span class="menu-icon" aria-hidden="true">&#x1F517;&#xFE0E;</span>
-                <span class="menu-label">Auto Bluetooth Pairing</span>
+                <span class="menu-label">Bluetooth Pair</span>
             </button>
             <button class="menu-item" id="btn-reload" role="menuitem" aria-label="Reload Launcher">
                 <span class="menu-icon" aria-hidden="true">&#x1F5D8;&#xFE0E;</span>
-                <span class="menu-label">Reload Launcher</span>
+                <span class="menu-label">Reload Games</span>
             </button>
             <button class="menu-item" id="btn-explorer" role="menuitem" aria-label="Open Games Folder">
                 <span class="menu-icon" aria-hidden="true">&#x1F5C1;&#xFE0E;</span>
                 <span class="menu-label">Open Games Folder</span>
             </button>
+            <button class="menu-item" id="btn-debug-exit" role="menuitem" aria-label="Exit Launcher" data-debug-only hidden>
+                <span class="menu-icon" aria-hidden="true">&#x1F5D8;&#xFE0E;</span>
+                <span class="menu-label">Exit Launcher</span>
+            </button>
             <button class="menu-item" id="btn-restart" role="menuitem" aria-label="Restart System">
                 <span class="menu-icon" aria-hidden="true">⟲</span>
-                <span class="menu-label">Restart System</span>
+                <span class="menu-label">Restart</span>
             </button>
             <button class="menu-item" id="btn-shutdown" role="menuitem" aria-label="Power Off">
                 <span class="menu-icon mdl2" aria-hidden="true">&#xE7E8;</span>
@@ -55,6 +65,8 @@
     <div class="content hidebar">
 
     </div>
+
+    <div id="pairing-input-shield" class="pairing-input-shield" hidden></div>
 
     <script src="./src/main.js" type="module"></script>
 </body>

@@ -47,7 +47,7 @@ func Init(enableFileLogs bool, path string, alsoStdout bool) error {
 		return nil
 	}
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		// fall back to stdout only on error
 		writer = os.Stdout
