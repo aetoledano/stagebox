@@ -123,6 +123,50 @@ function activate() {
   }
 }
 
+function isEditableTarget(target) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || target.isContentEditable;
+}
+
+function isPairingShieldActive() {
+  const shield = document.getElementById("pairing-input-shield");
+  return !!shield && !shield.hidden;
+}
+
+function handleKeyboard(e) {
+  if (isPairingShieldActive()) return;
+  if (isEditableTarget(e.target)) return;
+
+  const dirs = {
+    ArrowUp: "up",
+    ArrowDown: "down",
+    ArrowLeft: "left",
+    ArrowRight: "right",
+  };
+  const dir = dirs[e.key];
+  if (dir) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    move(dir);
+    return;
+  }
+
+  if (e.key === "Enter") {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (handleControllerPress("A")) return;
+    activate();
+    return;
+  }
+
+  if (e.key === " ") {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    handleControllerPress("START");
+  }
+}
+
 export function controllerInit(opts) {
   getCards        = opts.getCards;
   getBarButtons   = opts.getBarButtons || (()=>[]);
@@ -140,6 +184,7 @@ export function controllerInit(opts) {
     if (name === "A") activate() 
     else if (name === "KILL") KillRunning()
   });
+  window.addEventListener("keydown", handleKeyboard, true);
 }
 
 export function controllerRefresh() {

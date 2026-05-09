@@ -1,7 +1,7 @@
 import "./css/base.css";
 import "./css/cards.css";
 import "./css/topbar.css";
-import { Shutdown, Restart, ExitLauncher, OpenBluetoothPairing, LoadGames, Launch, Explorer, GetStatuses, Info, Warn, Error } from "/wailsjs/go/main/App.js";
+import { OpenSteam, Shutdown, Restart, ExitLauncher, OpenBluetoothPairing, LoadGames, Launch, Explorer, GetStatuses, Info, Warn, Error } from "/wailsjs/go/main/App.js";
 import { EventsOn } from "/wailsjs/runtime";
 import { initBTIndicator } from "./features/bluetooth.js";
 import { startClock } from "./features/clock.js";
@@ -15,6 +15,7 @@ document.querySelector("#btn-debug-bt-pairing")?.addEventListener("click", () =>
 document.querySelector("#btn-restart")?.addEventListener("click", () => Restart());
 document.querySelector("#btn-shutdown")?.addEventListener("click", () => Shutdown());
 document.querySelector("#btn-explorer")?.addEventListener("click", () => Explorer());
+document.querySelector("#btn-open-steam")?.addEventListener("click", () => OpenSteam().catch(console.error));
 
 
 const container = document.querySelector(".content .scrollport") || document.querySelector(".content");
