@@ -5,6 +5,7 @@ chcp 65001 >nul
 set "WD=C:\launcher"
 set "EXE=%WD%\launcher.exe"
 set "LOG=%WD%\bootstrapper.log"
+set "EXIT_FLAG=%WD%\exit-to-windows.flag"
 set "WV2_EXE=C:\Program Files (x86)\Microsoft\EdgeWebView\Application\msedgewebview2.exe"
 rem Optional offline installer (drop in this path if you have it)
 set "WV2_INST=%WD%\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
@@ -16,6 +17,7 @@ if not exist "%WD%" (
 )
 
 cd /d "%WD%"
+del /q "%EXIT_FLAG%" >nul 2>&1
 
 rem >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 rem Ensure Bluetooth services/radio are up (silent, best-effort)
@@ -67,6 +69,13 @@ for /f "usebackq delims=" %%S in ("%WD%\last_run_secs.txt") do set "SECS=%%S"
 if "%SECS%"=="" set "SECS=0"
 
 echo [%date% %time%] Launcher exited. rc=%RC% ran=%SECS%s >>"%LOG%"
+
+if exist "%EXIT_FLAG%" (
+  echo [%date% %time%] Exit-to-Windows requested. Starting Explorer and stopping bootstrapper.>>"%LOG%"
+  del /q "%EXIT_FLAG%" >nul 2>&1
+  start "" explorer.exe
+  exit /b 0
+)
 
 rem If it ran at least 10s, reset the quick-fail counter
 for /f "delims=" %%A in ('powershell -NoProfile -Command "[int](%SECS% -ge 10)"') do set OK=%%A

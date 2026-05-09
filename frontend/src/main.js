@@ -30,6 +30,12 @@ function setDebugToolsVisible(debug) {
   document.querySelectorAll("[data-debug-only]").forEach((el) => {
     el.hidden = !debug;
   });
+  const exitButton = document.querySelector("#btn-debug-exit");
+  const exitLabel = exitButton?.querySelector(".menu-label");
+  if (exitButton && exitLabel) {
+    exitButton.setAttribute("aria-label", debug ? "Reload Launcher" : "Exit to Windows");
+    exitLabel.textContent = debug ? "Reload Launcher" : "Exit to Windows";
+  }
   controllerRefresh();
 }
 

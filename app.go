@@ -119,16 +119,30 @@ func (a *App) Restart() {
 }
 
 func (a *App) ExitLauncher() {
-	if !a.config.Debug {
-		return
-	}
-
 	if a.pad != nil {
 		a.pad.Stop()
 	}
 
 	cursor.RestoreSystemCursor()
+	if !a.config.Debug {
+		a.exitToWindows()
+		return
+	}
+
 	lgx.Info("debug exit requested")
+	runtime.Quit(a.ctx)
+}
+
+func (a *App) exitToWindows() {
+	lgx.Info("exit to Windows requested")
+
+	if err := os.WriteFile("exit-to-windows.flag", []byte("1\n"), 0644); err != nil {
+		lgx.Errorf("write exit-to-windows marker failed: %v", err)
+	}
+	if err := exec.Command("explorer.exe").Start(); err != nil {
+		lgx.Errorf("start explorer failed: %v", err)
+	}
+
 	runtime.Quit(a.ctx)
 }
 
