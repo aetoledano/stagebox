@@ -44,7 +44,7 @@ The project is Windows-focused at runtime, but many platform-specific tools have
    - starts Bluetooth status polling,
    - fullscreenes the Wails window.
 4. `frontend/src/main.js` creates an empty grid, initializes controller navigation, subscribes to game loading events, then calls `LoadGames`.
-5. `LoadGames` loads each game through an 8-worker pool. Each worker parses `lc.json`, hashes the source image, creates or reuses a 512px thumbnail under `cache/thumbnails`, and emits `game:loaded` when that game is ready.
+5. `LoadGames` loads each game through an 8-worker pool. Each worker parses `lc.json`, hashes the source image, creates or reuses a 1280px thumbnail under `cache/thumbnails`, and emits `game:loaded` when that game is ready.
 6. Cards use `/game-thumbs/<game-id>-<hash>.jpg` URLs served by the Wails asset handler instead of base64 image payloads.
 7. Activating a card calls `Launch(id)`. Go pauses controller navigation, emits `game:start`, hides the launcher, starts the game process, then restores fullscreen launcher state and emits `game:end` after exit.
 
@@ -88,7 +88,7 @@ Notes:
 - `id` is optional in JSON. If omitted, the loader creates a deterministic UUID from the game name, falling back to the game directory name when the name is blank. If `id` is supplied, it must be a valid UUID.
 - JSON decoding is strict. Unknown keys fail because `jsonx.LoadJSONFile` uses `DisallowUnknownFields`.
 - `executable`, `image`, and `startsOn` are resolved relative to the game directory.
-- Images are processed into cached thumbnails. The frontend receives `thumbnailUrl` and `imageHash`, not base64 image data.
+- Images are processed into cached 1280px max-dimension JPEG thumbnails. The frontend receives `thumbnailUrl` and `imageHash`, not base64 image data.
 - JPEG, PNG, GIF, WebP, and AVIF source images are supported for thumbnail generation.
 - `keyMap` is optional and embedded in `lc.json`. The game key-map path is considered only when the `keyMap` key is present; if it is omitted the controller bridge is fully paused during gameplay as before. `keyMap.buttons` maps discrete gamepad buttons to arrays of key or mouse targets, so one controller input can press multiple targets. `keyMap.leftStick` and `keyMap.rightStick` map stick directions (`up`, `down`, `left`, `right`) to arrays of normal key targets. `keyMap.mouse` can be `leftStick` or `rightStick` to move the OS cursor; `mouseSensitivity` controls X-axis speed from 1-40 while Y-axis speed is intentionally half as fast, with a minimum of 1. If `keyMap` is present but has no valid bindings and no valid mouse stick, launch falls back to paused controller behavior. Supported gamepad keys include `A`, `B`, `X`, `Y`, `START`, `BACK`/`SELECT`, `LB`, `RB`, `LT`/`L2`/`LEFTTRIGGER`, `RT`/`R2`/`RIGHTTRIGGER`, `L3`, `R3`, and `DPAD_UP`/`DOWN`/`LEFT`/`RIGHT`. Supported keyboard targets include letters, digits, `Space`, `Enter`, `Escape`, `Tab`, `Shift`, `Control`, `Alt`, arrow keys, `Delete`, `F1`-`F12`, and `Numpad0`-`Numpad9`. Supported mouse button targets are `MouseLeft`, `MouseRight`, and `MouseMiddle`. See `keypad-sample.json` for a working structured mapping sample.
 
@@ -167,7 +167,7 @@ Wails runs `npm install`, `npm run build`, and `npm run dev` through the setting
 - Logging should use `internal/logx` for app diagnostics. Existing direct `log.Println` calls remain, but new app-level diagnostics should usually go through `logx`.
 - `jsonx.LoadJSONFile` rejects unknown JSON fields. When adding config or game metadata fields, update the Go structs first.
 - Do not assume Windows helper commands work on Linux. Non-Windows stubs intentionally return no-op or `"unknown"` behavior.
-- Keep thumbnail filenames hash-based. The hash is the cache invalidation signal when source images change.
+- Keep thumbnail filenames hash-based and include the thumbnail size/version in the filename. The source hash invalidates cache when source images change; the size suffix forces regeneration when thumbnail dimensions change.
 
 ## Common Feature Entry Points
 

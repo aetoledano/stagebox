@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	thumbnailMaxDimension = 512
-	thumbnailJPEGQuality  = 90
+	thumbnailMaxDimension = 1280
+	thumbnailJPEGQuality  = 94
 )
 
 type ThumbnailResult struct {
@@ -40,7 +40,7 @@ func EnsureThumbnail(gameID uuid.UUID, imagePath, cacheDir, urlPrefix string) (T
 	}
 
 	shortHash := hash[:16]
-	filename := fmt.Sprintf("%s-%s.jpg", gameID.String(), shortHash)
+	filename := fmt.Sprintf("%s-%s-%d.jpg", gameID.String(), shortHash, thumbnailMaxDimension)
 	targetPath := filepath.Join(cacheDir, filename)
 	result := ThumbnailResult{
 		Hash: shortHash,
