@@ -42,10 +42,6 @@ export function OpenBluetoothPairing() {
   return window['go']['main']['App']['OpenBluetoothPairing']();
 }
 
-export function OpenSteam() {
-  return window['go']['main']['App']['OpenSteam']();
-}
-
 export function Restart() {
   return window['go']['main']['App']['Restart']();
 }

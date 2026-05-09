@@ -4,7 +4,7 @@
 
 This repository is a Wails v2 desktop launcher named `launcher`, branded in the UI as `StageBox`. It is built as a kiosk-style game launcher with a Go backend and a Vite-powered vanilla JavaScript frontend.
 
-The app loads games from a configured game root, renders them as a fullscreen controller-friendly grid, launches selected game executables, hides/restores the launcher window around game sessions, and provides Windows kiosk helpers such as fullscreen mode, Bluetooth status/pairing, Steam session launch, display resolution setup, wallpaper hosting, shell registration, shutdown, and restart.
+The app loads games from a configured game root, renders them as a fullscreen controller-friendly grid, launches selected game executables, hides/restores the launcher window around game sessions, and provides Windows kiosk helpers such as fullscreen mode, Bluetooth status/pairing, display resolution setup, wallpaper hosting, shell registration, shutdown, and restart.
 
 The project is Windows-focused at runtime, but many platform-specific tools have non-Windows stubs so parts of the code can still compile or be inspected on Linux.
 
@@ -14,7 +14,7 @@ The project is Windows-focused at runtime, but many platform-specific tools have
 - `app.go`: Wails-bound backend API used by the frontend. Owns app lifecycle, game loading/launching, Bluetooth status events, controller bridge setup, and system actions.
 - `internal/assets`: runtime asset helpers, including thumbnail cache path and Wails thumbnail HTTP handler.
 - `internal/config`: JSON config shape. Currently `gamesRoot` and `debug`.
-- `internal/games`: game metadata model, concurrent game directory loader, thumbnail generation/cache support, launch/kill tracking, and Steam session launching.
+- `internal/games`: game metadata model, concurrent game directory loader, thumbnail generation/cache support, launch/kill tracking.
 - `internal/jsonx`: strict JSON file loader used by config and game metadata loading.
 - `internal/logx`: small logging package with file/stdout support and panic recovery.
 - `internal/platform`: platform integration packages. Windows files contain Win32/PowerShell integrations; `*_stub.go` files keep non-Windows builds safe.
@@ -102,8 +102,6 @@ Notes:
 - The frontend uses Vite and plain JavaScript, not a component framework.
 - `frontend/index.html` contains the fixed topbar and `.content` shell.
 - `frontend/src/main.js` renders the game grid dynamically.
-- Keyboard navigation mirrors controller navigation in `frontend/src/features/controller.js`: arrow keys move the `.gp-focus` selection, Enter activates the focused card/menu item, and Space opens the tools menu like the controller Start button.
-- The topbar has a dedicated Steam button that calls `App.OpenSteam`; when Steam is installed, `OpenSteam` launches Steam as a launcher session so StageBox hides, controller navigation is paused, and StageBox restores after `Steam.exe` exits.
 - `--accent` in `frontend/src/css/base.css` is the shared active green for card focus rings and active topbar indicators. Prefer `var(--accent)` for new active/focus green states instead of hard-coded greens.
 - `frontend/src/features/controller.js` listens for Wails runtime events:
   - `pad:nav` with `{ dir: "left" | "right" | "up" | "down" }`
@@ -123,7 +121,6 @@ When adding new backend methods that the frontend calls, update the Go `App` typ
 - `App.games` is a map keyed by `uuid.UUID`; frontend receives it as an object and normalizes it in `main.js`.
 - `App.LoadGames` populates `App.games` incrementally before emitting each `game:loaded` event, so launch can work while the rest of the library is still loading.
 - `Launch` is asynchronous from the UI perspective. It starts a goroutine that waits for the process and restores the launcher afterward. `internal/games.LaunchGame` returns a handle with `PID`, `Done`, and `Exited` channels so launch-time helpers such as `delayedKey` can react to process startup and cancellation without consuming the exit result.
-- `App.OpenSteam` uses `internal/games.LaunchSteamSession` when Steam is installed. It starts `Steam.exe` as a launcher session, hides StageBox, pauses controller navigation, and restores the launcher after that Steam process exits.
 - `KillRunning` only kills the tracked top-level process. It does not currently kill process trees.
 - The XInput bridge emits Wails events and has pause/resume behavior so launcher navigation does not continue while a game is active.
 - During game launch, the cursor is forced visible only when `showCursor` is true. The Windows cursor helper centers the pointer and injects a tiny synthetic mouse move so mouse-less systems can still materialize the cursor. For games without `showCursor`, the launch path temporarily replaces common Windows system cursors with transparent cursors and reasserts hidden cursor state briefly while the game window settles; system cursors are restored on game exit, startup, shutdown, restart, and debug exit. The launcher WebView also forces `cursor: none` in CSS so its pointer stays hidden even if Windows has a visible cursor. Card selection styling must come from `.gp-focus` or keyboard focus, not `.card:hover`, because invisible cursor position can otherwise make a second card look selected. `keyMap.mouse` can still move the OS cursor, but it does not make the cursor visible by itself. On game exit, mapped inputs are released, the cursor is moved to `(0,0)`, and the cursor is hidden before the launcher window is restored so the grid does not reopen with a hovered card.
@@ -191,9 +188,10 @@ Wails runs `npm install`, `npm run build`, and `npm run dev` through the setting
 Useful checks before handing off feature work:
 
 ```sh
+go test ./...
 npm --prefix frontend run build
 make build-linux
 make build-win
 ```
 
-Run the checks that fit the change and host OS. Ask the user before running test suites. Windows-only behavior needs real Windows validation, especially shell registration, Bluetooth pairing, XInput input, fullscreen restore, display mode changes, and shutdown/restart.
+Run the checks that fit the change and host OS. Windows-only behavior needs real Windows validation, especially shell registration, Bluetooth pairing, XInput input, fullscreen restore, display mode changes, and shutdown/restart.

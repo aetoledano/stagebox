@@ -23,8 +23,6 @@ export function LoadGames():Promise<Record<uuid.UUID, games.GameData>>;
 
 export function OpenBluetoothPairing():Promise<void>;
 
-export function OpenSteam():Promise<void>;
-
 export function Restart():Promise<void>;
 
 export function Shutdown():Promise<void>;
