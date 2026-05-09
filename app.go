@@ -42,6 +42,7 @@ type App struct {
 	thumbnailDir       string
 	thumbnailURLPrefix string
 	pad                *controller.XInputBridge
+	keyboard           *controller.KeyboardBridge
 	btStatus           string
 	btConnected        bool
 	controllerCount    int
@@ -82,6 +83,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	a.pad = controller.StartXInputBridge(ctx)
+	a.keyboard = controller.StartKeyboardBridge(ctx)
 
 	go a.watchBluetooth()
 
@@ -101,11 +103,30 @@ func (a *App) bringBack() {
 	runtime.WindowSetAlwaysOnTop(a.ctx, false)
 }
 
-// ... actions ...
-func (a *App) Shutdown() {
+func (a *App) pauseKeyboardInput() {
+	if a.keyboard != nil {
+		a.keyboard.Pause()
+	}
+}
+
+func (a *App) resumeKeyboardInput() {
+	if a.keyboard != nil {
+		a.keyboard.Resume()
+	}
+}
+
+func (a *App) stopLauncherInput() {
 	if a.pad != nil {
 		a.pad.Stop()
 	}
+	if a.keyboard != nil {
+		a.keyboard.Stop()
+	}
+}
+
+// ... actions ...
+func (a *App) Shutdown() {
+	a.stopLauncherInput()
 
 	cursor.RestoreSystemCursor()
 	exec.Command("shutdown", "-s", "-t", "0").Start()
@@ -115,9 +136,7 @@ func (a *App) Shutdown() {
 }
 
 func (a *App) Restart() {
-	if a.pad != nil {
-		a.pad.Stop()
-	}
+	a.stopLauncherInput()
 
 	cursor.RestoreSystemCursor()
 	exec.Command("shutdown", "-r", "-t", "0").Start()
@@ -127,9 +146,7 @@ func (a *App) Restart() {
 }
 
 func (a *App) ExitLauncher() {
-	if a.pad != nil {
-		a.pad.Stop()
-	}
+	a.stopLauncherInput()
 
 	cursor.RestoreSystemCursor()
 	if !a.config.Debug {
@@ -175,6 +192,7 @@ func (a *App) OpenBluetoothPairing() error {
 	}
 
 	cursor.SetCursorHidden(true)
+	a.pauseKeyboardInput()
 	if a.pad != nil {
 		a.pad.EnablePairingKeyboardModeForPID(uint32(cmd.Process.Pid))
 	}
@@ -200,6 +218,7 @@ func (a *App) OpenBluetoothPairing() error {
 			"pid": cmd.Process.Pid,
 		})
 		a.bringBack()
+		a.resumeKeyboardInput()
 		a.pairingMu.Lock()
 		a.pairingActive = false
 		a.pairingMu.Unlock()
@@ -338,6 +357,7 @@ func (a *App) Launch(id uuid.UUID) {
 	}
 
 	gameKeyMapActive := false
+	a.pauseKeyboardInput()
 	if a.pad != nil {
 		if game.KeyMap != nil {
 			gameKeyMapActive = a.pad.EnableGameKeyMap(controller.GameKeyMap{
@@ -404,6 +424,7 @@ func (a *App) Launch(id uuid.UUID) {
 		if a.pad != nil {
 			a.pad.Resume()
 		}
+		a.resumeKeyboardInput()
 	}()
 }
 
@@ -525,6 +546,7 @@ func (a *App) OpenSteam() error {
 }
 
 func (a *App) launchSteamSession(steamExe string) {
+	a.pauseKeyboardInput()
 	if a.pad != nil {
 		a.pad.Pause()
 	}
@@ -559,6 +581,7 @@ func (a *App) launchSteamSession(steamExe string) {
 		if a.pad != nil {
 			a.pad.Resume()
 		}
+		a.resumeKeyboardInput()
 	}()
 }
 

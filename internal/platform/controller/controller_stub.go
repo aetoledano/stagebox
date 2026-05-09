@@ -5,6 +5,7 @@ package controller
 import "context"
 
 type XInputBridge struct{}
+type KeyboardBridge struct{}
 type GameKeyMap struct {
 	Buttons          map[string][]string
 	LeftStick        map[string][]string
@@ -14,11 +15,14 @@ type GameKeyMap struct {
 }
 
 func StartXInputBridge(ctx context.Context) *XInputBridge { return nil }
-func (b *XInputBridge) Pause()                            {}
-func (b *XInputBridge) Resume()                           {}
-func (b *XInputBridge) EnableMouseMode()                  {}
-func (b *XInputBridge) EnableMouseModeForPID(pid uint32)  {}
-func (b *XInputBridge) DisableMouseMode()                 {}
+func StartKeyboardBridge(ctx context.Context) *KeyboardBridge {
+	return nil
+}
+func (b *XInputBridge) Pause()                           {}
+func (b *XInputBridge) Resume()                          {}
+func (b *XInputBridge) EnableMouseMode()                 {}
+func (b *XInputBridge) EnableMouseModeForPID(pid uint32) {}
+func (b *XInputBridge) DisableMouseMode()                {}
 func (b *XInputBridge) EnablePairingKeyboardModeForPID(pid uint32) {
 }
 func (b *XInputBridge) DisablePairingKeyboardMode() {}
@@ -27,6 +31,9 @@ func (b *XInputBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
 }
 func (b *XInputBridge) DisableGameKeyMap()   {}
 func (b *XInputBridge) Stop()                {}
+func (b *KeyboardBridge) Pause()             {}
+func (b *KeyboardBridge) Resume()            {}
+func (b *KeyboardBridge) Stop()              {}
 func FocusProcessWindow(pid uint32) bool     { return false }
 func HasVisibleWindowForPID(pid uint32) bool { return false }
 func MoveCursorTo(x int, y int)              {}

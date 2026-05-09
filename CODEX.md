@@ -19,7 +19,7 @@ The project is Windows-focused at runtime, but many platform-specific tools have
 - `internal/logx`: small logging package with file/stdout support and panic recovery.
 - `internal/platform`: platform integration packages. Windows files contain Win32/PowerShell integrations; `*_stub.go` files keep non-Windows builds safe.
   - `bluetooth`: Bluetooth state, bring-up, and connected-device detection.
-  - `controller`: XInput polling and Wails gamepad events.
+  - `controller`: XInput polling, launcher keyboard hook, and Wails input events.
   - `cursor`: cursor visibility helpers.
   - `display`: display resolution selection.
   - `shell`: per-user shell registration.
@@ -40,7 +40,7 @@ The project is Windows-focused at runtime, but many platform-specific tools have
    - tries to register the launcher as the per-user shell on Windows,
    - tries to force the primary display to 1920x1080 or the best lower mode,
    - starts a native wallpaper host for `loading.jpg`,
-   - starts the XInput controller bridge,
+   - starts the XInput controller bridge and Windows keyboard bridge,
    - starts Bluetooth status polling,
    - fullscreenes the Wails window.
 4. `frontend/src/main.js` creates an empty grid, initializes controller navigation, subscribes to game loading events, then calls `LoadGames`.
@@ -102,7 +102,7 @@ Notes:
 - The frontend uses Vite and plain JavaScript, not a component framework.
 - `frontend/index.html` contains the fixed topbar and `.content` shell.
 - `frontend/src/main.js` renders the game grid dynamically.
-- Keyboard navigation mirrors controller navigation in `frontend/src/features/controller.js`: arrow keys move the `.gp-focus` selection, Enter activates the focused card/menu item, and Space opens the tools menu like the controller Start button.
+- Keyboard navigation is emitted by the Go backend through the same `pad:nav` and `pad:press` events as controller navigation. On Windows, the keyboard bridge maps arrow keys to navigation, Enter to `A`, Escape to `B`, and Space to `START`; `frontend/src/features/controller.js` should stay focused on consuming those events.
 - The topbar has a dedicated Steam button that calls `App.OpenSteam`; when Steam is installed, `OpenSteam` launches Steam as a launcher session so StageBox hides, controller navigation is paused, and StageBox restores after `Steam.exe` exits.
 - `--accent` in `frontend/src/css/base.css` is the shared active green for card focus rings and active topbar indicators. Prefer `var(--accent)` for new active/focus green states instead of hard-coded greens.
 - `frontend/src/features/controller.js` listens for Wails runtime events:
@@ -125,7 +125,7 @@ When adding new backend methods that the frontend calls, update the Go `App` typ
 - `Launch` is asynchronous from the UI perspective. It starts a goroutine that waits for the process and restores the launcher afterward. `internal/games.LaunchGame` returns a handle with `PID`, `Done`, and `Exited` channels so launch-time helpers such as `delayedKey` can react to process startup and cancellation without consuming the exit result.
 - `App.OpenSteam` uses `internal/games.LaunchSteamSession` when Steam is installed. It starts `Steam.exe` as a launcher session, hides StageBox, pauses controller navigation, and restores the launcher after that Steam process exits.
 - `KillRunning` only kills the tracked top-level process. It does not currently kill process trees.
-- The XInput bridge emits Wails events and has pause/resume behavior so launcher navigation does not continue while a game is active.
+- The XInput bridge and keyboard bridge emit Wails events and have pause/resume behavior so launcher navigation does not continue while a game, Steam session, or pairing flow is active.
 - During game launch, the cursor is forced visible only when `showCursor` is true. The Windows cursor helper centers the pointer and injects a tiny synthetic mouse move so mouse-less systems can still materialize the cursor. For games without `showCursor`, the launch path temporarily replaces common Windows system cursors with transparent cursors and reasserts hidden cursor state briefly while the game window settles; system cursors are restored on game exit, startup, shutdown, restart, and debug exit. The launcher WebView also forces `cursor: none` in CSS so its pointer stays hidden even if Windows has a visible cursor. Card selection styling must come from `.gp-focus` or keyboard focus, not `.card:hover`, because invisible cursor position can otherwise make a second card look selected. `keyMap.mouse` can still move the OS cursor, but it does not make the cursor visible by itself. On game exit, mapped inputs are released, the cursor is moved to `(0,0)`, and the cursor is hidden before the launcher window is restored so the grid does not reopen with a hovered card.
 - The XInput Start button opens the centered tools menu directly; B closes the menu.
 - When `Bluetooth Pair` opens `DevicePairingWizard.exe`, the launcher hides, the XInput bridge enters pairing keyboard mode, and the wizard is repeatedly foregrounded while visible. D-pad sends normal arrow keys, left stick left/right cycles dialog focus with Shift+Tab/Tab semantics, A sends Enter, and B sends Esc. Launcher navigation events are suppressed until the wizard window closes; before restoring the launcher the cursor is moved to `(0,0)` and hidden.

@@ -158,6 +158,18 @@
   font-family: "Segoe MDL2 Assets", "Segoe UI Symbol", sans-serif;
 }
 
+.topbar .btn.iconbtn.steam-btn {
+  padding: 0;
+}
+
+.steam-icon {
+  display: block;
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  pointer-events: none;
+}
+
 .menu-overlay{
   position: fixed;
   inset: 0;
