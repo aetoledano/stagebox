@@ -103,7 +103,7 @@ Notes:
 - `frontend/index.html` contains the fixed topbar and `.content` shell.
 - `frontend/src/main.js` renders the game grid dynamically.
 - Keyboard navigation is emitted by the Go backend through the same `pad:nav` and `pad:press` events as controller navigation. On Windows, the keyboard bridge maps arrow keys to navigation, Enter to `A`, Escape to `B`, and Space to `START`; `frontend/src/features/controller.js` should stay focused on consuming those events.
-- The topbar has a dedicated Steam button that calls `App.OpenSteam`; when Steam is installed, `OpenSteam` launches Steam as a launcher session so StageBox hides, controller navigation is paused, and StageBox restores after `Steam.exe` exits.
+- The topbar has a dedicated Steam button that calls `App.OpenSteam`; when Steam is installed, `OpenSteam` launches Steam as a launcher session so StageBox hides, controller navigation is paused, the normal Windows cursor is restored and parked at the bottom-right corner of the primary screen for Steam games that need mouse input, and StageBox restores after `Steam.exe` exits.
 - `--accent` in `frontend/src/css/base.css` is the shared active green for card focus rings and active topbar indicators. Prefer `var(--accent)` for new active/focus green states instead of hard-coded greens.
 - `frontend/src/features/controller.js` listens for Wails runtime events:
   - `pad:nav` with `{ dir: "left" | "right" | "up" | "down" }`

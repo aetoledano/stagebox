@@ -556,7 +556,8 @@ func (a *App) launchSteamSession(steamExe string) {
 		"name": "Steam",
 	})
 	runtime.WindowHide(a.ctx)
-	cursor.SetCursorHidden(true)
+	cursor.RestoreSystemCursor()
+	cursor.MoveToBottomRight()
 
 	run := games.LaunchSteamSession(steamExe)
 	go func() {

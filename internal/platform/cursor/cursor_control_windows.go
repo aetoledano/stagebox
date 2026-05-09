@@ -97,6 +97,11 @@ func ForceCursorVisible() {
 	setCursorHidden(false)
 }
 
+func MoveToBottomRight() {
+	x, y := screenBottomRight()
+	procSetCursorPos.Call(uintptr(x), uintptr(y))
+}
+
 func HideSystemCursor() {
 	systemCursorMu.Lock()
 	defer systemCursorMu.Unlock()
@@ -177,4 +182,13 @@ func screenCenter() (int32, int32) {
 		return 0, 0
 	}
 	return int32(width / 2), int32(height / 2)
+}
+
+func screenBottomRight() (int32, int32) {
+	width, _, _ := procGetSystemMetrics.Call(smCXScreen)
+	height, _, _ := procGetSystemMetrics.Call(smCYScreen)
+	if width == 0 || height == 0 {
+		return 0, 0
+	}
+	return int32(width - 1), int32(height - 1)
 }
