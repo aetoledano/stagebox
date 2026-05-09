@@ -30,4 +30,7 @@ func (b *XInputBridge) Stop()                {}
 func FocusProcessWindow(pid uint32) bool     { return false }
 func HasVisibleWindowForPID(pid uint32) bool { return false }
 func MoveCursorTo(x int, y int)              {}
-func ConnectedCount() int                    { return 0 }
+func SendKeyStrokeToPID(pid uint32, key string) bool {
+	return false
+}
+func ConnectedCount() int { return 0 }

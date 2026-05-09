@@ -357,7 +357,10 @@ func (a *App) Launch(id uuid.UUID) {
 
 	runtime.WindowHide(a.ctx)
 
-	ch := games.LaunchGame(game)
+	run := games.LaunchGame(game)
+	if game.DelayedKey != nil {
+		a.scheduleDelayedKey(game, run.PID, run.Exited)
+	}
 
 	// Don't block the call; wait in background
 	go func() {
@@ -367,7 +370,7 @@ func (a *App) Launch(id uuid.UUID) {
 			cursor.ForceCursorHiddenFor(2 * time.Second)
 		}
 
-		err := <-ch
+		err := <-run.Done
 		if err != nil {
 			log.Printf("Error launching game %s: %v", game.Name, err)
 		} else {
@@ -393,6 +396,36 @@ func (a *App) Launch(id uuid.UUID) {
 		if a.pad != nil {
 			a.pad.Resume()
 		}
+	}()
+}
+
+func (a *App) scheduleDelayedKey(game *games.GameData, pidCh <-chan int, exited <-chan struct{}) {
+	delayed := game.DelayedKey
+	if delayed == nil || delayed.Key == "" || delayed.Seconds < 0 {
+		return
+	}
+
+	go func() {
+		pid, ok := <-pidCh
+		if !ok || pid <= 0 {
+			lgx.Debugf("delayed key skipped for %s: process did not start", game.Name)
+			return
+		}
+
+		timer := time.NewTimer(time.Duration(delayed.Seconds * float64(time.Second)))
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-exited:
+			lgx.Debugf("delayed key skipped for %s: game exited before %.2fs delay", game.Name, delayed.Seconds)
+			return
+		}
+
+		if !controller.SendKeyStrokeToPID(uint32(pid), delayed.Key) {
+			lgx.Warnf("delayed key skipped for %s: unsupported key %q", game.Name, delayed.Key)
+			return
+		}
+		lgx.Debugf("delayed key sent for %s: key=%q delay=%.2fs", game.Name, delayed.Key, delayed.Seconds)
 	}()
 }
 

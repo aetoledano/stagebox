@@ -13,6 +13,12 @@ var (
 	curCmd *exec.Cmd
 )
 
+type RunningGame struct {
+	Done   <-chan error
+	PID    <-chan int
+	Exited <-chan struct{}
+}
+
 func KillRunning() error {
 	curMu.Lock()
 	defer curMu.Unlock()
@@ -23,32 +29,44 @@ func KillRunning() error {
 	return curCmd.Process.Kill()
 }
 
-func LaunchGame(game *GameData) chan error {
-	ch := make(chan error, 1) // buffer 1 so the goroutine never blocks on send
+func LaunchGame(game *GameData) RunningGame {
+	done := make(chan error, 1) // buffer 1 so the goroutine never blocks on send
+	pid := make(chan int, 1)
+	exited := make(chan struct{})
+	result := RunningGame{
+		Done:   done,
+		PID:    pid,
+		Exited: exited,
+	}
 
 	if game == nil || game.Executable == "" {
-		ch <- errors.New("invalid game data")
-		close(ch)
-		return ch
+		done <- errors.New("invalid game data")
+		close(done)
+		close(pid)
+		close(exited)
+		return result
 	}
 
 	lockPath := os.TempDir() + "/" + game.ID.String() + ".lock"
 	lockFile, err := os.OpenFile(lockPath, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			ch <- errors.New("already running")
+			done <- errors.New("already running")
 		} else {
-			ch <- err
+			done <- err
 		}
-		close(ch)
-		return ch
+		close(done)
+		close(pid)
+		close(exited)
+		return result
 	}
 
 	go func() {
 		defer func() {
 			_ = lockFile.Close()
 			_ = os.Remove(lockPath)
-			close(ch)
+			close(done)
+			close(exited)
 		}()
 
 		cmd := exec.Command(game.Executable)
@@ -59,15 +77,21 @@ func LaunchGame(game *GameData) chan error {
 		// cmd.Args = append([]string{game.Executable}, game.Args...)
 
 		if err := cmd.Start(); err != nil {
-			ch <- err
+			curMu.Lock()
+			curCmd = nil
+			curMu.Unlock()
+			close(pid)
+			done <- err
 			return
 		}
-		ch <- cmd.Wait()
-		
+		pid <- cmd.Process.Pid
+		close(pid)
+		done <- cmd.Wait()
+
 		curMu.Lock()
 		curCmd = nil
 		curMu.Unlock()
 	}()
 
-	return ch
+	return result
 }

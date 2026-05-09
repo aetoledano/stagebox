@@ -325,6 +325,18 @@ func MoveCursorTo(x int, y int) {
 	procSetCursor.Call(uintptr(int32(x)), uintptr(int32(y)))
 }
 
+func SendKeyStrokeToPID(pid uint32, key string) bool {
+	vk, ok := virtualKey(key)
+	if !ok {
+		return false
+	}
+	if pid != 0 {
+		FocusProcessWindow(pid)
+	}
+	pressKey(vk)
+	return true
+}
+
 func ConnectedCount() int {
 	if xinputGetState == nil {
 		if err := loadXInput(); err != nil {

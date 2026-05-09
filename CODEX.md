@@ -61,6 +61,10 @@ Expected fields map to `internal/games.GameData`:
   "name": "Game Name",
   "description": "Optional description",
   "showCursor": false,
+  "delayedKey": {
+    "seconds": 4,
+    "key": "Enter"
+  },
   "keyMap": {
     "mouse": "rightStick",
     "mouseSensitivity": 14,
@@ -90,6 +94,7 @@ Notes:
 - `executable`, `image`, and `startsOn` are resolved relative to the game directory.
 - Images are processed into cached 1280px max-dimension JPEG thumbnails. The frontend receives `thumbnailUrl` and `imageHash`, not base64 image data.
 - JPEG, PNG, GIF, WebP, and AVIF source images are supported for thumbnail generation.
+- `delayedKey` is optional and intended for games that first open a keyboard-only launcher before the game itself starts. When present, the launcher waits for the game process PID, waits `seconds`, focuses that process window when possible, and sends one keyboard stroke named by `key`. If the process exits before the delay, the key is skipped. Supported key names match the controller key-map keyboard targets, such as `Enter`, `Space`, `Escape`, `Tab`, arrow keys, letters, digits, `Delete`, `F1`-`F12`, and `Numpad0`-`Numpad9`.
 - `keyMap` is optional and embedded in `lc.json`. The game key-map path is considered only when the `keyMap` key is present; if it is omitted the controller bridge is fully paused during gameplay as before. `keyMap.buttons` maps discrete gamepad buttons to arrays of key or mouse targets, so one controller input can press multiple targets. `keyMap.leftStick` and `keyMap.rightStick` map stick directions (`up`, `down`, `left`, `right`) to arrays of normal key targets. `keyMap.mouse` can be `leftStick` or `rightStick` to move the OS cursor; `mouseSensitivity` controls X-axis speed from 1-40 while Y-axis speed is intentionally half as fast, with a minimum of 1. If `keyMap` is present but has no valid bindings and no valid mouse stick, launch falls back to paused controller behavior. Supported gamepad keys include `A`, `B`, `X`, `Y`, `START`, `BACK`/`SELECT`, `LB`, `RB`, `LT`/`L2`/`LEFTTRIGGER`, `RT`/`R2`/`RIGHTTRIGGER`, `L3`, `R3`, and `DPAD_UP`/`DOWN`/`LEFT`/`RIGHT`. Supported keyboard targets include letters, digits, `Space`, `Enter`, `Escape`, `Tab`, `Shift`, `Control`, `Alt`, arrow keys, `Delete`, `F1`-`F12`, and `Numpad0`-`Numpad9`. Supported mouse button targets are `MouseLeft`, `MouseRight`, and `MouseMiddle`. See `keypad-sample.json` for a working structured mapping sample.
 
 ## Frontend Notes
@@ -115,7 +120,7 @@ When adding new backend methods that the frontend calls, update the Go `App` typ
 - Wails exposes exported methods on `App` to JavaScript. Keep method signatures simple and JSON-serializable.
 - `App.games` is a map keyed by `uuid.UUID`; frontend receives it as an object and normalizes it in `main.js`.
 - `App.LoadGames` populates `App.games` incrementally before emitting each `game:loaded` event, so launch can work while the rest of the library is still loading.
-- `Launch` is asynchronous from the UI perspective. It starts a goroutine that waits for the process and restores the launcher afterward.
+- `Launch` is asynchronous from the UI perspective. It starts a goroutine that waits for the process and restores the launcher afterward. `internal/games.LaunchGame` returns a handle with `PID`, `Done`, and `Exited` channels so launch-time helpers such as `delayedKey` can react to process startup and cancellation without consuming the exit result.
 - `KillRunning` only kills the tracked top-level process. It does not currently kill process trees.
 - The XInput bridge emits Wails events and has pause/resume behavior so launcher navigation does not continue while a game is active.
 - During game launch, the cursor is forced visible only when `showCursor` is true. The Windows cursor helper centers the pointer and injects a tiny synthetic mouse move so mouse-less systems can still materialize the cursor. For games without `showCursor`, the launch path temporarily replaces common Windows system cursors with transparent cursors and reasserts hidden cursor state briefly while the game window settles; system cursors are restored on game exit, startup, shutdown, restart, and debug exit. The launcher WebView also forces `cursor: none` in CSS so its pointer stays hidden even if Windows has a visible cursor. Card selection styling must come from `.gp-focus` or keyboard focus, not `.card:hover`, because invisible cursor position can otherwise make a second card look selected. `keyMap.mouse` can still move the OS cursor, but it does not make the cursor visible by itself. On game exit, mapped inputs are released, the cursor is moved to `(0,0)`, and the cursor is hidden before the launcher window is restored so the grid does not reopen with a hovered card.
