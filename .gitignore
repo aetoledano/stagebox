@@ -5,3 +5,5 @@ frontend/dist
 *.log
 
 /cache/
+
+new_features
