@@ -29,11 +29,15 @@ func (b *XInputBridge) DisablePairingKeyboardMode() {}
 func (b *XInputBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
 	return false
 }
-func (b *XInputBridge) DisableGameKeyMap()   {}
-func (b *XInputBridge) Stop()                {}
-func (b *KeyboardBridge) Pause()             {}
-func (b *KeyboardBridge) Resume()            {}
-func (b *KeyboardBridge) Stop()              {}
+func (b *XInputBridge) SetGameInputTargetPID(pid uint32) {}
+func (b *XInputBridge) DisableGameKeyMap()               {}
+func (b *XInputBridge) Stop()                            {}
+func (b *KeyboardBridge) Pause()                         {}
+func (b *KeyboardBridge) Resume()                        {}
+func (b *KeyboardBridge) Stop()                          {}
+func ForegroundBelongsToCurrentProcess() bool {
+	return false
+}
 func FocusProcessWindow(pid uint32) bool     { return false }
 func HasVisibleWindowForPID(pid uint32) bool { return false }
 func MoveCursorTo(x int, y int)              {}

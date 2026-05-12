@@ -11,6 +11,7 @@ import (
 	"launcher/internal/platform/display"
 	"launcher/internal/platform/shell"
 	"launcher/internal/platform/wallpaper"
+	"launcher/internal/platform/wifi"
 	"log"
 	"net/http"
 	"os"
@@ -41,20 +42,23 @@ type App struct {
 	pairingActive      bool
 	thumbnailDir       string
 	thumbnailURLPrefix string
+	loadingWallpaper   string
 	pad                *controller.XInputBridge
 	keyboard           *controller.KeyboardBridge
 	btStatus           string
 	btConnected        bool
 	controllerCount    int
+	wifiStatus         wifi.Status
 }
 
 // NewApp creates a new App application struct
-func NewApp(config *config.Config, thumbnailDir string, thumbnailURLPrefix string) *App {
+func NewApp(config *config.Config, thumbnailDir string, thumbnailURLPrefix string, loadingWallpaper string) *App {
 	return &App{
 		config:             config,
 		games:              map[uuid.UUID]*games.GameData{},
 		thumbnailDir:       thumbnailDir,
 		thumbnailURLPrefix: thumbnailURLPrefix,
+		loadingWallpaper:   loadingWallpaper,
 	}
 }
 
@@ -74,7 +78,11 @@ func (a *App) startup(ctx context.Context) {
 	_ = display.ForcePrimary1080pOrBest()
 
 	// Start the bottom-most wallpaper host
-	if stop, err := wallpaper.StartWallpaper("loading.jpg", "cover"); err == nil {
+	loadingWallpaper := a.loadingWallpaper
+	if loadingWallpaper == "" {
+		loadingWallpaper = "loading.jpg"
+	}
+	if stop, err := wallpaper.StartWallpaper(loadingWallpaper, "cover"); err == nil {
 		// ensure it is torn down cleanly
 		// if you already have a global cleanup, call stop() there instead
 		go func() { <-ctx.Done(); stop() }() // on app exit
@@ -122,6 +130,20 @@ func (a *App) stopLauncherInput() {
 	if a.keyboard != nil {
 		a.keyboard.Stop()
 	}
+}
+
+func (a *App) pauseLauncherInput() {
+	if a.pad != nil {
+		a.pad.Pause()
+	}
+	a.pauseKeyboardInput()
+}
+
+func (a *App) resumeLauncherInput() {
+	if a.pad != nil {
+		a.pad.Resume()
+	}
+	a.resumeKeyboardInput()
 }
 
 // ... actions ...
@@ -228,6 +250,50 @@ func (a *App) OpenBluetoothPairing() error {
 	return nil
 }
 
+func (a *App) SetLauncherInputPaused(paused bool) {
+	if paused {
+		a.pauseLauncherInput()
+		cursor.ForceCursorVisible()
+		return
+	}
+	controller.MoveCursorTo(0, 0)
+	cursor.SetCursorHidden(true)
+	a.resumeLauncherInput()
+}
+
+func (a *App) SetLauncherKeyboardPaused(paused bool) {
+	if paused {
+		a.pauseKeyboardInput()
+		cursor.ForceCursorVisible()
+		return
+	}
+	controller.MoveCursorTo(0, 0)
+	cursor.SetCursorHidden(true)
+	a.resumeKeyboardInput()
+}
+
+func (a *App) ScanWifiNetworks() ([]wifi.Network, error) {
+	lgx.Info("ScanWifiNetworks requested")
+	networks, err := wifi.Scan()
+	if err != nil {
+		lgx.Errorf("scan WiFi networks failed: %v", err)
+		return nil, err
+	}
+	lgx.Infof("scan WiFi networks found=%d", len(networks))
+	return networks, nil
+}
+
+func (a *App) ConnectWifiNetwork(ssid string, password string) error {
+	lgx.Infof("ConnectWifiNetwork requested ssid=%q", ssid)
+	if err := wifi.Connect(ssid, password); err != nil {
+		lgx.Errorf("connect WiFi network failed ssid=%q err=%v", ssid, err)
+		a.emitHardwareStatus()
+		return err
+	}
+	a.emitHardwareStatus()
+	return nil
+}
+
 func (a *App) closePairingProcess(cmd *exec.Cmd, processDone <-chan struct{}) {
 	select {
 	case <-processDone:
@@ -288,7 +354,14 @@ func (a *App) waitForPairingWindow(pid uint32, processDone <-chan struct{}) {
 }
 
 func (a *App) LoadGames() map[uuid.UUID]*games.GameData {
-	log.Println("Loading games from:", a.config.GamesRoot)
+	lgx.Infof("loading games from %q", a.config.GamesRoot)
+	if strings.TrimSpace(a.config.GamesRoot) == "" {
+		lgx.Errorf("gamesRoot is empty; check config.json in the launcher working directory")
+	} else if info, err := os.Stat(a.config.GamesRoot); err != nil {
+		lgx.Errorf("gamesRoot is not readable path=%q err=%v", a.config.GamesRoot, err)
+	} else if !info.IsDir() {
+		lgx.Errorf("gamesRoot is not a directory path=%q", a.config.GamesRoot)
+	}
 
 	a.gamesMu.Lock()
 	a.games = map[uuid.UUID]*games.GameData{}
@@ -323,6 +396,7 @@ func (a *App) LoadGames() map[uuid.UUID]*games.GameData {
 		},
 		OnProgress: emitProgress,
 		OnError: func(gamePath string, err error) {
+			lgx.Errorf("game load error path=%q err=%v", gamePath, err)
 			runtime.EventsEmit(a.ctx, "game:load-error", map[string]any{
 				"path":  gamePath,
 				"error": err.Error(),
@@ -333,6 +407,7 @@ func (a *App) LoadGames() map[uuid.UUID]*games.GameData {
 	a.gamesMu.Lock()
 	a.games = loaded
 	a.gamesMu.Unlock()
+	lgx.Infof("loaded games count=%d", len(loaded))
 
 	progressMu.Lock()
 	finalLoaded := processed
@@ -386,8 +461,10 @@ func (a *App) Launch(id uuid.UUID) {
 	runtime.WindowHide(a.ctx)
 
 	run := games.LaunchGame(game)
-	if game.DelayedKey != nil {
-		a.scheduleDelayedKey(game, run.PID, run.Exited)
+	if game.DelayedKey != nil || gameKeyMapActive {
+		a.handleGameProcessStarted(game, run.PID, run.Exited, gameKeyMapActive)
+	} else {
+		a.focusGameAtStartup(run.PID)
 	}
 
 	// Don't block the call; wait in background
@@ -428,19 +505,50 @@ func (a *App) Launch(id uuid.UUID) {
 	}()
 }
 
-func (a *App) scheduleDelayedKey(game *games.GameData, pidCh <-chan int, exited <-chan struct{}) {
+func (a *App) handleGameProcessStarted(game *games.GameData, pidCh <-chan int, exited <-chan struct{}, gameKeyMapActive bool) {
+	go func() {
+		pid, ok := <-pidCh
+		if !ok || pid <= 0 {
+			return
+		}
+
+		go a.focusGamePIDFor(uint32(pid), 4*time.Second)
+		if gameKeyMapActive && a.pad != nil {
+			a.pad.SetGameInputTargetPID(uint32(pid))
+			lgx.Debugf("game key-map target pid=%d", pid)
+		}
+
+		if game.DelayedKey != nil {
+			a.scheduleDelayedKeyForPID(game, uint32(pid), exited)
+		}
+	}()
+}
+
+func (a *App) focusGameAtStartup(pidCh <-chan int) {
+	go func() {
+		pid, ok := <-pidCh
+		if !ok || pid <= 0 {
+			return
+		}
+		a.focusGamePIDFor(uint32(pid), 4*time.Second)
+	}()
+}
+
+func (a *App) focusGamePIDFor(pid uint32, duration time.Duration) {
+	deadline := time.Now().Add(duration)
+	for time.Now().Before(deadline) {
+		controller.FocusProcessWindow(pid)
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+func (a *App) scheduleDelayedKeyForPID(game *games.GameData, pid uint32, exited <-chan struct{}) {
 	delayed := game.DelayedKey
 	if delayed == nil || delayed.Key == "" || delayed.Seconds < 0 {
 		return
 	}
 
 	go func() {
-		pid, ok := <-pidCh
-		if !ok || pid <= 0 {
-			lgx.Debugf("delayed key skipped for %s: process did not start", game.Name)
-			return
-		}
-
 		timer := time.NewTimer(time.Duration(delayed.Seconds * float64(time.Second)))
 		defer timer.Stop()
 		select {
@@ -450,7 +558,7 @@ func (a *App) scheduleDelayedKey(game *games.GameData, pidCh <-chan int, exited 
 			return
 		}
 
-		if !controller.SendKeyStrokeToPID(uint32(pid), delayed.Key) {
+		if !controller.SendKeyStrokeToPID(pid, delayed.Key) {
 			lgx.Warnf("delayed key skipped for %s: unsupported key %q", game.Name, delayed.Key)
 			return
 		}
@@ -459,7 +567,12 @@ func (a *App) scheduleDelayedKey(game *games.GameData, pidCh <-chan int, exited 
 }
 
 func (a *App) KillRunning() error {
-	return games.KillRunning()
+	if err := games.KillRunning(); err != nil {
+		lgx.Warnf("kill running game failed: %v", err)
+		return err
+	}
+	lgx.Infof("kill running game requested")
+	return nil
 }
 
 func (a *App) Explorer() {
@@ -467,19 +580,20 @@ func (a *App) Explorer() {
 }
 
 func (a *App) GetStatuses() map[string]any {
-	st, connected, count := a.readHardwareStatus()
-	return a.statusPayload(st, connected, count)
+	st, connected, count, wifiSt := a.readHardwareStatus()
+	return a.statusPayload(st, connected, count, wifiSt)
 }
 
 func (a *App) watchBluetooth() {
 	lgx.Info("Starting Bluetooth state watcher")
 
 	// initial emit
-	s, connected, count := a.readHardwareStatus()
+	s, connected, count, wifiSt := a.readHardwareStatus()
 	a.btStatus = s
 	a.btConnected = connected
 	a.controllerCount = count
-	runtime.EventsEmit(a.ctx, "status:update", a.statusPayload(s, connected, count))
+	a.wifiStatus = wifiSt
+	runtime.EventsEmit(a.ctx, "status:update", a.statusPayload(s, connected, count, wifiSt))
 
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
@@ -487,12 +601,13 @@ func (a *App) watchBluetooth() {
 	for {
 		select {
 		case <-t.C:
-			st, connected, count := a.readHardwareStatus()
-			if st != a.btStatus || connected != a.btConnected || count != a.controllerCount {
+			st, connected, count, wifiSt := a.readHardwareStatus()
+			if st != a.btStatus || connected != a.btConnected || count != a.controllerCount || wifiSt != a.wifiStatus {
 				a.btStatus = st
 				a.btConnected = connected
 				a.controllerCount = count
-				runtime.EventsEmit(a.ctx, "status:update", a.statusPayload(st, connected, count))
+				a.wifiStatus = wifiSt
+				runtime.EventsEmit(a.ctx, "status:update", a.statusPayload(st, connected, count, wifiSt))
 			}
 		case <-a.ctx.Done():
 			return
@@ -504,21 +619,29 @@ func (a *App) watchBluetooth() {
 func (a *App) EnsureBT() {
 	bluetooth.EnsureUp()
 	// emit a fresh status so UI updates
-	st, connected, count := a.readHardwareStatus()
-	runtime.EventsEmit(a.ctx, "status:update", a.statusPayload(st, connected, count))
+	a.emitHardwareStatus()
 }
 
-func (a *App) readHardwareStatus() (string, bool, int) {
+func (a *App) emitHardwareStatus() {
+	st, connected, count, wifiSt := a.readHardwareStatus()
+	runtime.EventsEmit(a.ctx, "status:update", a.statusPayload(st, connected, count, wifiSt))
+}
+
+func (a *App) readHardwareStatus() (string, bool, int, wifi.Status) {
 	st := bluetooth.State()
 	count := controller.ConnectedCount()
-	return st, st == "on" && bluetooth.AnyConnectedDevice(), count
+	return st, st == "on" && bluetooth.AnyConnectedDevice(), count, wifi.CurrentStatus()
 }
 
-func (a *App) statusPayload(bt string, btConnected bool, controllerCount int) map[string]any {
+func (a *App) statusPayload(bt string, btConnected bool, controllerCount int, wifiSt wifi.Status) map[string]any {
 	return map[string]any{
 		"bt":              bt,
 		"btConnected":     btConnected,
 		"controllerCount": controllerCount,
+		"wifiAvailable":   wifiSt.Available,
+		"wifiConnected":   wifiSt.Connected,
+		"wifiSSID":        wifiSt.SSID,
+		"wifiState":       wifiSt.State,
 		"debug":           a.config.Debug,
 	}
 }

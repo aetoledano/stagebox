@@ -25,8 +25,7 @@ func KillRunning() error {
 	if curCmd == nil || curCmd.Process == nil {
 		return errors.New("no game running")
 	}
-	// Best-effort kill. (Later: upgrade to a Job Object to kill trees.)
-	return curCmd.Process.Kill()
+	return killProcessTree(curCmd.Process)
 }
 
 func LaunchGame(game *GameData) RunningGame {

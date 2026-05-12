@@ -13,6 +13,7 @@
         <div class="indicators">
             <span id="clock" class="clock" aria-label="Clock"></span>
             <span id="bt-indicator" class="bti mdl2" title="Bluetooth Indicator">&#xE702;</span>
+            <span id="wifi-indicator" class="wfi mdl2 unknown" title="Wi-Fi status">&#xE701;</span>
             <span id="controller-indicator" class="cmi inactive" title="Controllers connected">
                 <svg class="cmi-icon" aria-hidden="true" viewBox="0 0 24 24">
                     <path d="M7.2 10.1h9.6c2.1 0 3.8 1.6 4 3.7l.2 2.6c.1 1.2-.8 2.2-2 2.2-.6 0-1.1-.2-1.5-.7l-1.8-2h-7.4l-1.8 2c-.4.4-.9.7-1.5.7-1.2 0-2.1-1-2-2.2l.2-2.6c.2-2.1 1.9-3.7 4-3.7Z" />
@@ -42,6 +43,10 @@
                 <span class="menu-icon" aria-hidden="true">&#x1F517;&#xFE0E;</span>
                 <span class="menu-label">Bluetooth Pair</span>
             </button>
+            <button class="menu-item" id="btn-wifi-networks" role="menuitem" aria-label="Wi-Fi Networks">
+                <span class="menu-icon mdl2" aria-hidden="true">&#xE701;</span>
+                <span class="menu-label">Wi-Fi Networks</span>
+            </button>
             <button class="menu-item" id="btn-reload" role="menuitem" aria-label="Reload Launcher">
                 <span class="menu-icon" aria-hidden="true">&#x1F5D8;&#xFE0E;</span>
                 <span class="menu-label">Reload Games</span>
@@ -62,6 +67,25 @@
                 <span class="menu-icon mdl2" aria-hidden="true">&#xE7E8;</span>
                 <span class="menu-label">Power Off</span>
             </button>
+        </div>
+    </div>
+
+    <div id="wifi-overlay" class="wifi-overlay" hidden>
+        <div class="wifi-panel" role="dialog" aria-modal="true" aria-label="Wi-Fi Networks">
+            <div class="wifi-head">
+                <h2>Wi-Fi Networks</h2>
+                <div class="wifi-actions">
+                    <button class="wifi-btn" id="btn-wifi-refresh" type="button">Refresh</button>
+                    <button class="wifi-icon-btn mdl2" id="btn-wifi-close" type="button" aria-label="Close">&#xE711;</button>
+                </div>
+            </div>
+            <div id="wifi-status" class="wifi-status"></div>
+            <div id="wifi-list" class="wifi-list"></div>
+            <form id="wifi-connect-form" class="wifi-form" hidden>
+                <div class="wifi-selected" id="wifi-selected"></div>
+                <input id="wifi-password" class="wifi-input" type="password" autocomplete="current-password" placeholder="Password" />
+                <button class="wifi-btn primary" id="btn-wifi-connect" type="submit">Connect</button>
+            </form>
         </div>
     </div>
 

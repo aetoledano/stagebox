@@ -1,6 +1,7 @@
 package jsonx
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,19 +11,19 @@ import (
 // LoadJSONFile opens `path` (or reads stdin if path == "-") and decodes JSON into v.
 // Uses only the Go standard library.
 func LoadJSONFile[T any](path string, v *T) error {
-	var r io.ReadCloser
+	var data []byte
+	var err error
 	if path == "-" {
-		r = io.NopCloser(os.Stdin)
+		data, err = io.ReadAll(os.Stdin)
 	} else {
-		f, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		r = f
+		data, err = os.ReadFile(path)
 	}
-	defer r.Close()
+	if err != nil {
+		return err
+	}
+	data = bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})
 
-	dec := json.NewDecoder(r)
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields() // strict: catches unknown keys
 
 	if err := dec.Decode(v); err != nil {
@@ -30,7 +31,11 @@ func LoadJSONFile[T any](path string, v *T) error {
 	}
 	// Ensure there isn't trailing junk after the JSON value
 	// (optional but nice for strictness)
-	if dec.More() {
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err != nil {
+			return err
+		}
 		return fmt.Errorf("trailing data after JSON")
 	}
 	return nil

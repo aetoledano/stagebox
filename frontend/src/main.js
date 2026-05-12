@@ -7,11 +7,16 @@ import { initBTIndicator } from "./features/bluetooth.js";
 import { startClock } from "./features/clock.js";
 import { controllerFocusGrid, controllerInit, controllerRefresh } from "./features/controller.js";
 import { closeMenu, initTopbarMenu } from "./features/topbarMenu.js";
+import { initWifiDialog, openWifiDialog } from "./features/wifi.js";
 
 // build topbar once (or keep your existing HTML)
 document.querySelector("#btn-reload")?.addEventListener("click", () => window.location.reload());
 document.querySelector("#btn-debug-exit")?.addEventListener("click", () => ExitLauncher().catch(console.error));
 document.querySelector("#btn-debug-bt-pairing")?.addEventListener("click", () => OpenBluetoothPairing().catch(console.error));
+document.querySelector("#btn-wifi-networks")?.addEventListener("click", () => {
+  closeMenu();
+  openWifiDialog();
+});
 document.querySelector("#btn-restart")?.addEventListener("click", () => Restart());
 document.querySelector("#btn-shutdown")?.addEventListener("click", () => Shutdown());
 document.querySelector("#btn-explorer")?.addEventListener("click", () => Explorer());
@@ -177,6 +182,7 @@ async function loadAndShow() {
 }
 
 initTopbarMenu({ onClose: () => controllerFocusGrid() });
+initWifiDialog({ onClose: () => controllerFocusGrid() });
 initBTIndicator();
 GetStatuses().then((s) => setDebugToolsVisible(!!s.debug)).catch(() => setDebugToolsVisible(false));
 loadAndShow();

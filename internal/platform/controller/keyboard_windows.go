@@ -181,3 +181,7 @@ func foregroundBelongsToCurrentProcess() bool {
 	procGetWindowThreadProcessID.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
 	return pid == windows.GetCurrentProcessId()
 }
+
+func ForegroundBelongsToCurrentProcess() bool {
+	return foregroundBelongsToCurrentProcess()
+}

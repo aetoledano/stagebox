@@ -2,7 +2,7 @@ package games
 
 import (
 	"launcher/internal/jsonx"
-	"log"
+	lgx "launcher/internal/logx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +29,7 @@ func LoadGames(rootPath string) map[uuid.UUID]*GameData {
 func LoadGamesWithOptions(rootPath string, opts LoadOptions) map[uuid.UUID]*GameData {
 	rootEntries, err := os.ReadDir(rootPath)
 	if err != nil {
-		log.Printf("Error reading game root %s: %v", rootPath, err)
+		lgx.Errorf("error reading game root %q: %v", rootPath, err)
 		if opts.OnError != nil {
 			opts.OnError(rootPath, err)
 		}
@@ -83,7 +83,7 @@ func LoadGamesWithOptions(rootPath string, opts LoadOptions) map[uuid.UUID]*Game
 			for gamePath := range jobs {
 				gd, err := loadGame(gamePath, opts)
 				if err != nil {
-					log.Printf("Error loading game from %s: %v", gamePath, err)
+					lgx.Errorf("error loading game from %q: %v", gamePath, err)
 					if opts.OnError != nil {
 						opts.OnError(gamePath, err)
 					}
@@ -129,7 +129,7 @@ func loadGame(gamePath string, opts LoadOptions) (*GameData, error) {
 	if opts.ThumbnailDir != "" && opts.ThumbnailURLPrefix != "" && gd.Image != "" {
 		thumb, err := EnsureThumbnail(gd.ID, gd.Image, opts.ThumbnailDir, opts.ThumbnailURLPrefix)
 		if err != nil {
-			log.Printf("Error generating thumbnail for %s: %v", gd.Image, err)
+			lgx.Errorf("error generating thumbnail for %q: %v", gd.Image, err)
 		} else {
 			gd.ImageHash = thumb.Hash
 			gd.ThumbnailURL = thumb.URL

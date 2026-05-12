@@ -19,6 +19,10 @@ import (
 var (
 	xinput                       *windows.LazyDLL
 	xinputGetState               *windows.LazyProc
+	legacyJoystickReady          atomic.Bool
+	winmm                        = windows.NewLazySystemDLL("winmm.dll")
+	procJoyGetNumDevs            = winmm.NewProc("joyGetNumDevs")
+	procJoyGetPosEx              = winmm.NewProc("joyGetPosEx")
 	user32                       = windows.NewLazySystemDLL("user32.dll")
 	procGetCursor                = user32.NewProc("GetCursorPos")
 	procSetCursor                = user32.NewProc("SetCursorPos")
@@ -46,6 +50,22 @@ type xinputState struct {
 	Gamepad        xinputGamepad
 }
 
+type joyInfoEx struct {
+	dwSize         uint32
+	dwFlags        uint32
+	dwXpos         uint32
+	dwYpos         uint32
+	dwZpos         uint32
+	dwRpos         uint32
+	dwUpos         uint32
+	dwVpos         uint32
+	dwButtons      uint32
+	dwButtonNumber uint32
+	dwPOV          uint32
+	dwReserved1    uint32
+	dwReserved2    uint32
+}
+
 const (
 	XINPUT_GAMEPAD_DPAD_UP        = 0x0001
 	XINPUT_GAMEPAD_DPAD_DOWN      = 0x0002
@@ -62,6 +82,8 @@ const (
 	XINPUT_GAMEPAD_LEFT_THUMB     = 0x0040
 	XINPUT_GAMEPAD_RIGHT_THUMB    = 0x0080
 	ERROR_DEVICE_NOT_CONNECTED    = 1167
+	joyReturnAll                  = 0x000000FF
+	joyPovCentered                = 0x0000FFFF
 
 	mouseEventLeftDown   = 0x0002
 	mouseEventLeftUp     = 0x0004
@@ -158,6 +180,23 @@ func loadXInput() error {
 	return err
 }
 
+func loadLegacyJoystick() error {
+	if legacyJoystickReady.Load() {
+		return nil
+	}
+	if err := winmm.Load(); err != nil {
+		return err
+	}
+	if err := procJoyGetNumDevs.Find(); err != nil {
+		return err
+	}
+	if err := procJoyGetPosEx.Find(); err != nil {
+		return err
+	}
+	legacyJoystickReady.Store(true)
+	return nil
+}
+
 type XInputBridge struct {
 	ctx            context.Context
 	paused         atomic.Int32 // 0 = running, 1 = paused
@@ -178,13 +217,16 @@ type XInputBridge struct {
 	nextRepeat  time.Time
 	prevGamepad xinputGamepad
 	activeIndex uint32
+	legacyIndex uint32
 	killCombo   time.Time
 	killArmed   bool
 }
 
 func StartXInputBridge(ctx context.Context) *XInputBridge {
-	if err := loadXInput(); err != nil {
-		return nil // no XInput available
+	xinputOK := loadXInput() == nil
+	legacyOK := loadLegacyJoystick() == nil
+	if !xinputOK && !legacyOK {
+		return nil // no controller polling API available
 	}
 	b := &XInputBridge{
 		ctx:  ctx,
@@ -283,6 +325,9 @@ func (b *XInputBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
 	b.nextRepeat = time.Time{}
 	return true
 }
+func (b *XInputBridge) SetGameInputTargetPID(pid uint32) {
+	b.inputTargetPID.Store(pid)
+}
 func (b *XInputBridge) DisableGameKeyMap() {
 	b.gameKeys.Store(0)
 	b.clearGameKeyMap()
@@ -339,20 +384,179 @@ func SendKeyStrokeToPID(pid uint32, key string) bool {
 
 func ConnectedCount() int {
 	if xinputGetState == nil {
-		if err := loadXInput(); err != nil {
-			return 0
-		}
+		_ = loadXInput()
 	}
 
 	count := 0
-	var st xinputState
-	for i := uint32(0); i < 4; i++ {
-		r1, _, _ := xinputGetState.Call(uintptr(i), uintptr(unsafe.Pointer(&st)))
-		if r1 == 0 {
+	if xinputGetState != nil {
+		var st xinputState
+		for i := uint32(0); i < 4; i++ {
+			r1, _, _ := xinputGetState.Call(uintptr(i), uintptr(unsafe.Pointer(&st)))
+			if r1 == 0 {
+				count++
+			}
+		}
+	}
+	if count > 0 {
+		return count
+	}
+	if loadLegacyJoystick() != nil {
+		return 0
+	}
+	return legacyConnectedCount()
+}
+
+func legacyConnectedCount() int {
+	if loadLegacyJoystick() != nil {
+		return 0
+	}
+	n, _, _ := procJoyGetNumDevs.Call()
+	if n > 16 {
+		n = 16
+	}
+
+	count := 0
+	for i := uintptr(0); i < n; i++ {
+		if _, ok := pollLegacyIndex(uint32(i)); ok {
 			count++
 		}
 	}
 	return count
+}
+
+func (b *XInputBridge) pollXInputGamepad(lastConn time.Time) (xinputGamepad, bool) {
+	if xinputGetState == nil {
+		return xinputGamepad{}, false
+	}
+
+	var st xinputState
+	r1, _, _ := xinputGetState.Call(uintptr(b.activeIndex), uintptr(unsafe.Pointer(&st)))
+	if r1 == 0 {
+		return st.Gamepad, true
+	}
+
+	if r1 != ERROR_DEVICE_NOT_CONNECTED && time.Since(lastConn) <= 2*time.Second {
+		return xinputGamepad{}, false
+	}
+
+	for i := uint32(0); i < 4; i++ {
+		r1, _, _ = xinputGetState.Call(uintptr(i), uintptr(unsafe.Pointer(&st)))
+		if r1 == 0 {
+			b.activeIndex = i
+			return st.Gamepad, true
+		}
+	}
+	return xinputGamepad{}, false
+}
+
+func (b *XInputBridge) pollLegacyGamepad() (xinputGamepad, bool) {
+	if loadLegacyJoystick() != nil {
+		return xinputGamepad{}, false
+	}
+	if gp, ok := pollLegacyIndex(b.legacyIndex); ok {
+		return gp, true
+	}
+
+	n, _, _ := procJoyGetNumDevs.Call()
+	if n > 16 {
+		n = 16
+	}
+	for i := uint32(0); i < uint32(n); i++ {
+		gp, ok := pollLegacyIndex(i)
+		if ok {
+			b.legacyIndex = i
+			return gp, true
+		}
+	}
+	return xinputGamepad{}, false
+}
+
+func pollLegacyIndex(index uint32) (xinputGamepad, bool) {
+	var joy joyInfoEx
+	joy.dwSize = uint32(unsafe.Sizeof(joy))
+	joy.dwFlags = joyReturnAll
+
+	r1, _, _ := procJoyGetPosEx.Call(uintptr(index), uintptr(unsafe.Pointer(&joy)))
+	if r1 != 0 {
+		return xinputGamepad{}, false
+	}
+	return legacyJoyToGamepad(joy), true
+}
+
+func legacyJoyToGamepad(joy joyInfoEx) xinputGamepad {
+	buttons := uint16(0)
+	if joy.dwButtons&(1<<0) != 0 {
+		buttons |= XINPUT_GAMEPAD_A
+	}
+	if joy.dwButtons&(1<<1) != 0 {
+		buttons |= XINPUT_GAMEPAD_B
+	}
+	if joy.dwButtons&(1<<2) != 0 {
+		buttons |= XINPUT_GAMEPAD_X
+	}
+	if joy.dwButtons&(1<<3) != 0 {
+		buttons |= XINPUT_GAMEPAD_Y
+	}
+	if joy.dwButtons&(1<<4) != 0 {
+		buttons |= XINPUT_GAMEPAD_LEFT_SHOULDER
+	}
+	if joy.dwButtons&(1<<5) != 0 {
+		buttons |= XINPUT_GAMEPAD_RIGHT_SHOULDER
+	}
+	if joy.dwButtons&(1<<6) != 0 {
+		buttons |= XINPUT_GAMEPAD_BACK
+	}
+	if joy.dwButtons&(1<<7) != 0 {
+		buttons |= XINPUT_GAMEPAD_START
+	}
+	if joy.dwButtons&(1<<8) != 0 {
+		buttons |= XINPUT_GAMEPAD_LEFT_THUMB
+	}
+	if joy.dwButtons&(1<<9) != 0 {
+		buttons |= XINPUT_GAMEPAD_RIGHT_THUMB
+	}
+
+	if joy.dwPOV != joyPovCentered {
+		switch {
+		case joy.dwPOV >= 31500 || joy.dwPOV <= 4500:
+			buttons |= XINPUT_GAMEPAD_DPAD_UP
+		case joy.dwPOV >= 4500 && joy.dwPOV <= 13500:
+			buttons |= XINPUT_GAMEPAD_DPAD_RIGHT
+		case joy.dwPOV >= 13500 && joy.dwPOV <= 22500:
+			buttons |= XINPUT_GAMEPAD_DPAD_DOWN
+		case joy.dwPOV >= 22500 && joy.dwPOV <= 31500:
+			buttons |= XINPUT_GAMEPAD_DPAD_LEFT
+		}
+	}
+
+	return xinputGamepad{
+		wButtons: buttons,
+		sThumbLX: legacyAxis(joy.dwXpos),
+		sThumbLY: legacyAxisInverted(joy.dwYpos),
+		sThumbRX: legacyAxis(joy.dwZpos),
+		sThumbRY: legacyAxisInverted(joy.dwRpos),
+	}
+}
+
+func legacyAxis(value uint32) int16 {
+	if value > 65535 {
+		value = 65535
+	}
+	return int16(int32(value) - 32768)
+}
+
+func legacyAxisInverted(value uint32) int16 {
+	if value > 65535 {
+		value = 65535
+	}
+	v := int32(32768) - int32(value)
+	if v > 32767 {
+		v = 32767
+	}
+	if v < -32768 {
+		v = -32768
+	}
+	return int16(v)
 }
 
 func (b *XInputBridge) Stop() {
@@ -378,33 +582,36 @@ func (b *XInputBridge) loop() {
 		case <-t.C:
 		}
 
-		// poll current controller
-		var st xinputState
-		r1, _, _ := xinputGetState.Call(uintptr(b.activeIndex), uintptr(unsafe.Pointer(&st)))
-		if r1 != 0 {
-			// rescan 0..3 if disconnected or every 2s
-			if r1 == ERROR_DEVICE_NOT_CONNECTED || time.Since(lastConn) > 2*time.Second {
-				found := false
-				for i := uint32(0); i < 4; i++ {
-					r1, _, _ = xinputGetState.Call(uintptr(i), uintptr(unsafe.Pointer(&st)))
-					if r1 == 0 {
-						b.activeIndex = i
-						found = true
-						break
-					}
-				}
-				if !found {
-					b.prevButtons, b.holdDir = 0, ""
-					continue
-				}
-			}
-		} else {
+		gp, ok := b.pollXInputGamepad(lastConn)
+		if ok {
 			lastConn = time.Now()
+		} else {
+			gp, ok = b.pollLegacyGamepad()
+			if !ok {
+				b.prevButtons, b.holdDir = 0, ""
+				continue
+			}
 		}
 
-		gp := st.Gamepad
 		buttons := gp.wButtons
 		just := func(mask uint16) bool { return (buttons&mask) != 0 && (b.prevButtons&mask) == 0 }
+
+		both := (buttons&XINPUT_GAMEPAD_START) != 0 && (buttons&XINPUT_GAMEPAD_BACK) != 0
+		if both {
+			if !b.killArmed {
+				if b.killCombo.IsZero() {
+					b.killCombo = time.Now()
+				} else if time.Since(b.killCombo) > 700*time.Millisecond {
+					runtime.EventsEmit(b.ctx, "pad:press", "KILL")
+					b.killArmed = true
+				}
+			}
+			b.prevGamepad = gp
+			b.prevButtons = buttons
+			continue
+		}
+		b.killCombo = time.Time{}
+		b.killArmed = false
 
 		if b.mouse.Load() == 1 {
 			b.handleMouseMode(gp, buttons, just)
@@ -423,21 +630,6 @@ func (b *XInputBridge) loop() {
 			b.prevGamepad = gp
 			b.prevButtons = buttons
 			continue
-		}
-
-		both := (buttons&XINPUT_GAMEPAD_START) != 0 && (buttons&XINPUT_GAMEPAD_BACK) != 0
-		if both {
-			if !b.killArmed {
-				if b.killCombo.IsZero() {
-					b.killCombo = time.Now()
-				} else if time.Since(b.killCombo) > 700*time.Millisecond {
-					runtime.EventsEmit(b.ctx, "pad:press", "KILL")
-					b.killArmed = true // <— require release before next kill
-				}
-			}
-		} else {
-			b.killCombo = time.Time{}
-			b.killArmed = false
 		}
 
 		if b.paused.Load() == 1 {

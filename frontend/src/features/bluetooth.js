@@ -2,10 +2,15 @@ import { GetStatuses } from "/wailsjs/go/main/App.js";
 import { EventsOn } from "/wailsjs/runtime";
 
 const BT_GLYPH = "\uE702"; // Segoe MDL2 Bluetooth
+const WIFI_GLYPH = "\uE701"; // Segoe MDL2 Wi-Fi
 
 let btState = "unknown";
 let controllerCount = 0;
 let bluetoothControllerConnected = false;
+let wifiAvailable = false;
+let wifiConnected = false;
+let wifiSSID = "";
+let wifiState = "unknown";
 
 function applyBT(el) {
   el.textContent = BT_GLYPH;
@@ -42,8 +47,29 @@ function applyControllerIndicator(count) {
   el.title = count === 1 ? "1 controller connected" : `${count} controllers connected`;
 }
 
+function applyWiFi(el) {
+  el.textContent = WIFI_GLYPH;
+  el.classList.remove("on", "idle", "off", "unknown");
+
+  if (!wifiAvailable) {
+    el.classList.add("unknown");
+    el.title = "Wi-Fi unavailable";
+    return;
+  }
+
+  if (wifiConnected) {
+    el.classList.add("on");
+    el.title = wifiSSID ? `Wi-Fi connected: ${wifiSSID}` : "Wi-Fi connected";
+    return;
+  }
+
+  el.classList.add("idle");
+  el.title = wifiState ? `Wi-Fi ${wifiState}` : "Wi-Fi not connected";
+}
+
 function paintBTStatus(payload) {
   const el = document.getElementById("bt-indicator");
+  const wifiEl = document.getElementById("wifi-indicator");
 
   if (payload && "bt" in payload) btState = String(payload.bt || "unknown");
   if (payload && "btConnected" in payload) bluetoothControllerConnected = !!payload.btConnected;
@@ -53,8 +79,13 @@ function paintBTStatus(payload) {
   } else if (payload && "btConnected" in payload) {
     controllerCount = payload.btConnected ? 1 : 0;
   }
+  if (payload && "wifiAvailable" in payload) wifiAvailable = !!payload.wifiAvailable;
+  if (payload && "wifiConnected" in payload) wifiConnected = !!payload.wifiConnected;
+  if (payload && "wifiSSID" in payload) wifiSSID = String(payload.wifiSSID || "");
+  if (payload && "wifiState" in payload) wifiState = String(payload.wifiState || "");
 
   if (el) applyBT(el);
+  if (wifiEl) applyWiFi(wifiEl);
   applyControllerIndicator(controllerCount);
 }
 

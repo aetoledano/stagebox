@@ -17,6 +17,9 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed assets/loading.jpg
+var runtimeAssets embed.FS
+
 var appVersion = "0.25"
 
 func main() {
@@ -24,28 +27,35 @@ func main() {
 
 	// load config
 	config := config.NewConfig()
-	jsonx.LoadJSONFile("config.json", &config)
+	configErr := jsonx.LoadJSONFile("config.json", &config)
 	thumbnailDir := cacheassets.ThumbnailCacheDir()
 	if err := os.MkdirAll(thumbnailDir, 0o755); err != nil {
 		lgx.Errorf("failed to create thumbnail cache: %v", err)
 	}
-	// Create an instance of the app structure
-	app := NewApp(&config, thumbnailDir, cacheassets.ThumbnailURLPrefix)
 
-	// Enable debug mode if specified in config
-	logFileName := "launcher.log"
-	if config.Debug {
-		logFileName = "stagebox-debug.log"
-	}
-	if err := lgx.Init(config.Debug, logFileName, true); err != nil {
+	if err := lgx.Init(true, "stagebox.log", true); err != nil {
 		lgx.Errorf("failed to open log file at default path: %v", err)
 	}
 	lgx.SetLevel("debug")
 	lgx.Infof("launcher starting version=%s pid=%d", appVersion, os.Getpid())
+	if configErr != nil {
+		lgx.Errorf("failed to load config.json: %v", configErr)
+	}
+	lgx.Infof("config gamesRoot=%q debug=%v", config.GamesRoot, config.Debug)
+
+	loadingWallpaperPath := "loading.jpg"
+	if path, err := cacheassets.ExtractEmbeddedFile(runtimeAssets, "assets/loading.jpg", "loading.jpg"); err != nil {
+		lgx.Errorf("failed to extract embedded loading wallpaper: %v", err)
+	} else {
+		loadingWallpaperPath = path
+	}
+
+	// Create an instance of the app structure
+	app := NewApp(&config, thumbnailDir, cacheassets.ThumbnailURLPrefix, loadingWallpaperPath)
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title: "launcher",
+		Title: "stagebox",
 		AssetServer: &assetserver.Options{
 			Assets:  assets,
 			Handler: cacheassets.ThumbnailHandler(thumbnailDir),

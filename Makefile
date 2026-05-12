@@ -1,4 +1,4 @@
-APP ?= launcher
+APP ?= stagebox
 MINGW  ?= x86_64-w64-mingw32
 WIN_CC ?= $(MINGW)-gcc
 WIN_CXX?= $(MINGW)-g++
@@ -20,7 +20,7 @@ build-win:
 	@CGO_ENABLED=1 CC=$(WIN_CC) CXX=$(WIN_CXX) GOOS=windows GOARCH=amd64 \
 		wails build -platform windows/amd64
 	@echo "→ Output:"
-	@ls -lh build/bin/*.exe 2>/dev/null || true
+	@ls -lh build/bin/stagebox.exe 2>/dev/null || true
 
 .PHONY: dep
 dep:

@@ -52,7 +52,7 @@ func ConnectedControllerCount() int {
 	seen := map[string]struct{}{}
 
 	if !initBluetoothProcs() {
-		return pnpConnectedControllerCount(seen)
+		return 0
 	}
 	radios := enumerateRadios()
 	defer closeRadioHandles(radios)
@@ -60,7 +60,7 @@ func ConnectedControllerCount() int {
 	for _, hRadio := range radios {
 		radioConnectedControllers(hRadio, seen)
 	}
-	return pnpConnectedControllerCount(seen)
+	return len(seen)
 }
 
 func closeRadioHandles(radios []windows.Handle) {

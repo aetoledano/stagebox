@@ -63,9 +63,9 @@ export function handleControllerNav(dir) {
   if (!items.length) return true;
 
   if (dir === "up" || dir === "left") {
-    state.i = Math.max(0, state.i - 1);
+    state.i = (state.i - 1 + items.length) % items.length;
   } else if (dir === "down" || dir === "right") {
-    state.i = Math.min(items.length - 1, state.i + 1);
+    state.i = (state.i + 1) % items.length;
   }
   updateFocus();
   return true;

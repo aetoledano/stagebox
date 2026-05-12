@@ -261,8 +261,198 @@ button,
   white-space: nowrap;
 }
 
+.wifi-overlay{
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, .28);
+  -webkit-app-region: no-drag;
+}
+
+.wifi-overlay[hidden]{
+  display: none;
+}
+
+.wifi-panel{
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100vh - 80px);
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(12, 12, 12, .82);
+  backdrop-filter: blur(12px);
+  color: #eaeaea;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, .52);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wifi-head{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.wifi-head h2{
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.wifi-actions{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wifi-btn,
+.wifi-icon-btn{
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(28,28,28,.92);
+  color: #eee;
+  font-family: var(--ui-font);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.wifi-btn{
+  padding: 0 12px;
+}
+
+.wifi-btn.primary{
+  border-color: color-mix(in srgb, var(--accent) 60%, rgba(255,255,255,.14));
+  background: color-mix(in srgb, var(--accent) 28%, rgba(28,28,28,.92));
+}
+
+.wifi-icon-btn{
+  width: 34px;
+  padding: 0;
+}
+
+.wifi-btn:focus-visible,
+.wifi-icon-btn:focus-visible,
+.wifi-network:focus-visible,
+.wifi-input:focus-visible{
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.wifi-btn.gp-focus,
+.wifi-icon-btn.gp-focus,
+.wifi-network.gp-focus,
+.wifi-input.gp-focus{
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.wifi-status{
+  min-height: 20px;
+  color: #cfcfcf;
+  font-size: 13px;
+}
+
+.wifi-status[data-tone="error"]{
+  color: #fca5a5;
+}
+
+.wifi-status[data-tone="ok"]{
+  color: var(--accent);
+}
+
+.wifi-list{
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(420px, calc(100vh - 270px));
+}
+
+.wifi-network{
+  min-height: 48px;
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(28,28,28,.92);
+  color: #eee;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  text-align: left;
+  font-family: var(--ui-font);
+}
+
+.wifi-network:hover{
+  background: rgba(46,46,46,.9);
+}
+
+.wifi-name{
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.wifi-meta{
+  color: #bdbdbd;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.wifi-empty{
+  padding: 16px;
+  color: #cfcfcf;
+  text-align: center;
+}
+
+.wifi-form{
+  display: grid;
+  grid-template-columns: 1fr minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.wifi-form[hidden]{
+  display: none;
+}
+
+.wifi-selected{
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.wifi-input{
+  box-sizing: border-box;
+  height: 34px;
+  min-width: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(5,5,5,.7);
+  color: #fff;
+  padding: 0 10px;
+  font-family: var(--ui-font);
+  font-size: 14px;
+}
+
+.wifi-overlay,
+.wifi-overlay *{
+  cursor: default;
+}
+
 /* Indicators */
-.bti, .cmi{
+.bti, .wfi, .cmi{
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -275,34 +465,30 @@ button,
 
 
 /* Bluetooth indicator */
-.bti.on {
+.bti.on,
+.wfi.on {
   color: var(--accent);
 }
 
 .bti.idle,
 .bti.off,
 .bti.disabled,
-.bti.unknown {
+.bti.unknown,
+.wfi.idle,
+.wfi.off,
+.wfi.unknown {
   color: #a3a3a3;
 }
 
-.bti.unknown {
+.bti.unknown,
+.wfi.unknown {
   opacity: .6;
 }
 
 .bti.off::after,
-.bti.disabled::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 2px;
-  background: currentColor;
-  transform: rotate(-45deg);
-}
-
-.bti.unknown::after {
+.bti.disabled::after,
+.wfi.off::after,
+.wfi.unknown::after {
   content: "";
   position: absolute;
   left: 0;
