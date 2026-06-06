@@ -250,7 +250,7 @@ function Register-StageBoxTasks([string]$TaskUser) {
     $userAction = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ('//B //Nologo "{0}" systemsvcs' -f $svcScript)
     $userTrigger = New-ScheduledTaskTrigger -AtLogOn -User $TaskUser
     $userTrigger.Delay = "PT07S"
-    $userPrincipal = New-ScheduledTaskPrincipal -UserId $TaskUser -RunLevel LeastPrivilege -LogonType Interactive
+    $userPrincipal = New-ScheduledTaskPrincipal -UserId $TaskUser -RunLevel Limited -LogonType Interactive
     Register-ScheduledTask -TaskName "StageBox-EnsureUser" -TaskPath $TaskPath -Action $userAction -Trigger $userTrigger -Settings $settings -Principal $userPrincipal -Force | Out-Null
     Log "registered task StageBox-EnsureUser for $TaskUser"
   }
