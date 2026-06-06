@@ -16,6 +16,9 @@
   --topbar-h: 56px;    /* toolbar height */
   --accent: #2a7;      /* shared active green for focus rings and indicators */
   --ring-w: 2px;       /* focus ring width for cards */
+  --stagebox-scale: 1;
+  --stagebox-width: 100vw;
+  --stagebox-height: 100vh;
 }
 
 html, body { font-family: var(--ui-font); }
@@ -31,11 +34,22 @@ body {
              center center / cover no-repeat fixed;
 }
 
+#stagebox-scale-root{
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--stagebox-width);
+  height: var(--stagebox-height);
+  overflow: hidden;
+  transform: scale(var(--stagebox-scale));
+  transform-origin: top left;
+}
+
 /* Main scrolling area below the topbar */
 .content{
   box-sizing: border-box;
   margin-top: var(--topbar-h);
-  height: calc(100vh - var(--topbar-h));
+  height: calc(100% - var(--topbar-h));
   overflow: auto;
   padding: 5px;
   will-change: scroll-position;

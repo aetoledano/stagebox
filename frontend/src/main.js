@@ -8,6 +8,7 @@ import { startClock } from "./features/clock.js";
 import { controllerFocusGrid, controllerInit, controllerRefresh } from "./features/controller.js";
 import { closeMenu, initTopbarMenu } from "./features/topbarMenu.js";
 import { initWifiDialog, openWifiDialog } from "./features/wifi.js";
+import { initUIScale } from "./features/uiScale.js";
 
 // build topbar once (or keep your existing HTML)
 document.querySelector("#btn-reload")?.addEventListener("click", () => window.location.reload());
@@ -22,6 +23,7 @@ document.querySelector("#btn-shutdown")?.addEventListener("click", () => Shutdow
 document.querySelector("#btn-explorer")?.addEventListener("click", () => Explorer());
 document.querySelector("#btn-open-steam")?.addEventListener("click", () => OpenSteam().catch(console.error));
 
+initUIScale(() => controllerRefresh());
 
 const container = document.querySelector(".content .scrollport") || document.querySelector(".content");
 const grid = document.createElement("div");

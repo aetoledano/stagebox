@@ -75,7 +75,9 @@ func (a *App) startup(ctx context.Context) {
 		println("ensureSelfAsShell failed:", err.Error())
 	}
 
-	_ = display.ForcePrimary1080pOrBest()
+	if err := display.UsePrimaryMaxResolution(); err != nil {
+		lgx.Warnf("display max-resolution setup failed: %v", err)
+	}
 
 	// Start the bottom-most wallpaper host
 	loadingWallpaper := a.loadingWallpaper

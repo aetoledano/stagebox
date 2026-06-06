@@ -181,8 +181,44 @@ func ForcePreferredResolution(dev *uint16, prefW, prefH uint32) (applied display
 	return cur, fmt.Errorf("no suitable mode applied")
 }
 
+func ForceMaxResolution(dev *uint16) (applied displayMode, err error) {
+	if dev == nil {
+		dev = deviceNameForPrimary()
+	}
+	cur, _ := currentMode(dev)
+	modes := listModes(dev)
+	if len(modes) == 0 {
+		return cur, fmt.Errorf("no modes enumerated")
+	}
+
+	best := modes[0]
+	bestArea := uint64(best.w) * uint64(best.h)
+	for _, m := range modes[1:] {
+		area := uint64(m.w) * uint64(m.h)
+		if area > bestArea ||
+			(area == bestArea && m.hz > best.hz) ||
+			(area == bestArea && m.hz == best.hz && m.w > best.w) {
+			best = m
+			bestArea = area
+		}
+	}
+
+	if cur.w == best.w && cur.h == best.h && (best.hz == 0 || cur.hz == best.hz) {
+		return cur, nil
+	}
+	if err := setMode(dev, best); err != nil {
+		return cur, err
+	}
+	return best, nil
+}
+
 // Convenience: force primary to 1080p or best-below.
 func ForcePrimary1080pOrBest() error {
 	_, err := ForcePreferredResolution(nil, 1920, 1080)
+	return err
+}
+
+func UsePrimaryMaxResolution() error {
+	_, err := ForceMaxResolution(nil)
 	return err
 }

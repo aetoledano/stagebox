@@ -41,7 +41,7 @@ The project is Windows-focused at runtime, but many platform-specific tools have
 4. On startup, `App.startup`:
    - saves the Wails context,
    - tries to register the launcher as the per-user shell on Windows,
-   - tries to force the primary display to 1920x1080 or the best lower mode,
+   - tries to set the primary display to the highest enumerated mode so games can use the monitor's native/max resolution,
    - starts a native wallpaper host for the extracted embedded `loading.jpg`,
    - starts the XInput controller bridge and Windows keyboard bridge,
    - starts Bluetooth status polling,
@@ -105,6 +105,7 @@ Notes:
 - The frontend uses Vite and plain JavaScript, not a component framework.
 - `frontend/index.html` contains the fixed topbar and `.content` shell.
 - `frontend/src/main.js` renders the game grid dynamically.
+- `frontend/src/features/uiScale.js` scales `#stagebox-scale-root` against a 1920x1080 design surface. This keeps the launcher visually large on 1440p/4K displays while Windows remains at the monitor's max resolution for games.
 - Keyboard navigation is emitted by the Go backend through the same `pad:nav` and `pad:press` events as controller navigation. On Windows, the keyboard bridge maps arrow keys to navigation, Enter to `A`, Escape to `B`, and Space to `START`; `frontend/src/features/controller.js` should stay focused on consuming those events.
 - The topbar has a dedicated Steam button that calls `App.OpenSteam`; when Steam is installed, `OpenSteam` launches Steam as a launcher session so StageBox hides, controller navigation is paused, the normal Windows cursor is restored and parked at the bottom-right corner of the primary screen for Steam games that need mouse input, and StageBox restores after `Steam.exe` exits.
 - The tools menu has a `Wi-Fi Networks` item that opens an in-app WiFi overlay. The overlay calls `App.ScanWifiNetworks` and `App.ConnectWifiNetwork`, and pauses only the launcher keyboard hook via `App.SetLauncherKeyboardPaused` while password entry is active. Controller polling stays active and `frontend/src/features/wifi.js` consumes `pad:*` events for D-pad/A/B/Start overlay navigation. Pausing keyboard input also forces the normal Windows cursor visible for the dialog; closing the overlay moves the cursor back to `(0,0)`, hides it, and resumes launcher keyboard input.
@@ -128,6 +129,7 @@ When adding new backend methods that the frontend calls, update the Go `App` typ
 - `App.LoadGames` populates `App.games` incrementally before emitting each `game:loaded` event, so launch can work while the rest of the library is still loading.
 - `Launch` is asynchronous from the UI perspective. It starts a goroutine that waits for the process and restores the launcher afterward. `internal/games.LaunchGame` returns a handle with `PID`, `Done`, and `Exited` channels so launch-time helpers such as `delayedKey` can react to process startup and cancellation without consuming the exit result.
 - `App.OpenSteam` uses `internal/games.LaunchSteamSession` when Steam is installed. It starts `Steam.exe` as a launcher session, hides StageBox, pauses controller navigation, and restores the launcher after that Steam process exits.
+- Startup calls `display.UsePrimaryMaxResolution` instead of forcing 1080p. The launcher should not lower the Windows display mode because borderless/windowed games can inherit that mode or render incorrectly when they try to use native resolution.
 - `assets/loading.jpg` is embedded in the Go executable, then extracted to `cache/assets/loading.jpg` on startup. The native wallpaper code still receives a file path because Windows GDI+ loads the image from disk; deployments do not need to copy a separate `loading.jpg` next to `stagebox.exe` for the default background.
 - `KillRunning` kills the tracked game process tree on Windows via hidden `taskkill /T /F`, with a direct process kill fallback. This matters for launchers that spawn child game processes.
 - The XInput bridge and keyboard bridge emit Wails events and have pause/resume behavior so launcher navigation does not continue while a game, Steam session, or pairing flow is active. On Windows, the controller bridge prefers XInput and falls back to `winmm` joystick polling when Bluetooth/HID controllers are present but not exposed as XInput slots; the fallback converts joystick buttons, left stick axes, and POV hat into the same launcher `pad:*` events.

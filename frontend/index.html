@@ -8,92 +8,94 @@
 </head>
 
 <body>
-    <div id="app"></div>
-    <div class="topbar">
-        <div class="indicators">
-            <span id="clock" class="clock" aria-label="Clock"></span>
-            <span id="bt-indicator" class="bti mdl2" title="Bluetooth Indicator">&#xE702;</span>
-            <span id="wifi-indicator" class="wfi mdl2 unknown" title="Wi-Fi status">&#xE701;</span>
-            <span id="controller-indicator" class="cmi inactive" title="Controllers connected">
-                <svg class="cmi-icon" aria-hidden="true" viewBox="0 0 24 24">
-                    <path d="M7.2 10.1h9.6c2.1 0 3.8 1.6 4 3.7l.2 2.6c.1 1.2-.8 2.2-2 2.2-.6 0-1.1-.2-1.5-.7l-1.8-2h-7.4l-1.8 2c-.4.4-.9.7-1.5.7-1.2 0-2.1-1-2-2.2l.2-2.6c.2-2.1 1.9-3.7 4-3.7Z" />
-                    <path d="M8 12.5v2.8M6.6 13.9h2.8M15.5 13.1h.01M18 15h.01" />
-                </svg>
-                <span class="cmi-count">0</span>
-            </span>
-        </div>
-
-        <div class="title">
-            <span class="title-text">StageBox</span>
-            <span id="game-load-status" class="load-status idle" aria-label="Game library status" title="Game library status"></span>
-        </div>
-
-        <div class="actions">
-            <button class="btn iconbtn steam-btn" id="btn-open-steam" aria-label="Open Steam" title="Steam">
-                <img class="steam-icon" src="./src/assets/images/steam-ico.png" alt="" aria-hidden="true" />
-            </button>
-            <button class="btn iconbtn mdl2" id="btn-tools-menu" aria-label="Open tools menu" aria-expanded="false"
-                aria-controls="tools-menu-overlay" title="Tools">&#xE713;</button>
-        </div>
-    </div>
-
-    <div id="tools-menu-overlay" class="menu-overlay" hidden>
-        <div class="tools-menu" role="menu" aria-label="Tools menu">
-            <button class="menu-item" id="btn-debug-bt-pairing" role="menuitem" aria-label="Bluetooth Pair">
-                <span class="menu-icon" aria-hidden="true">&#x1F517;&#xFE0E;</span>
-                <span class="menu-label">Bluetooth Pair</span>
-            </button>
-            <button class="menu-item" id="btn-wifi-networks" role="menuitem" aria-label="Wi-Fi Networks">
-                <span class="menu-icon mdl2" aria-hidden="true">&#xE701;</span>
-                <span class="menu-label">Wi-Fi Networks</span>
-            </button>
-            <button class="menu-item" id="btn-reload" role="menuitem" aria-label="Reload Launcher">
-                <span class="menu-icon" aria-hidden="true">&#x1F5D8;&#xFE0E;</span>
-                <span class="menu-label">Reload Games</span>
-            </button>
-            <button class="menu-item" id="btn-explorer" role="menuitem" aria-label="Open Games Folder">
-                <span class="menu-icon" aria-hidden="true">&#x1F5C1;&#xFE0E;</span>
-                <span class="menu-label">Open Games Folder</span>
-            </button>
-            <button class="menu-item" id="btn-debug-exit" role="menuitem" aria-label="Exit to Windows">
-                <span class="menu-icon mdl2" aria-hidden="true">&#xE8BB;</span>
-                <span class="menu-label">Exit Launcher</span>
-            </button>
-            <button class="menu-item" id="btn-restart" role="menuitem" aria-label="Restart System">
-                <span class="menu-icon" aria-hidden="true">⟲</span>
-                <span class="menu-label">Restart</span>
-            </button>
-            <button class="menu-item" id="btn-shutdown" role="menuitem" aria-label="Power Off">
-                <span class="menu-icon mdl2" aria-hidden="true">&#xE7E8;</span>
-                <span class="menu-label">Power Off</span>
-            </button>
-        </div>
-    </div>
-
-    <div id="wifi-overlay" class="wifi-overlay" hidden>
-        <div class="wifi-panel" role="dialog" aria-modal="true" aria-label="Wi-Fi Networks">
-            <div class="wifi-head">
-                <h2>Wi-Fi Networks</h2>
-                <div class="wifi-actions">
-                    <button class="wifi-btn" id="btn-wifi-refresh" type="button">Refresh</button>
-                    <button class="wifi-icon-btn mdl2" id="btn-wifi-close" type="button" aria-label="Close">&#xE711;</button>
-                </div>
+    <div id="stagebox-scale-root">
+        <div id="app"></div>
+        <div class="topbar">
+            <div class="indicators">
+                <span id="clock" class="clock" aria-label="Clock"></span>
+                <span id="bt-indicator" class="bti mdl2" title="Bluetooth Indicator">&#xE702;</span>
+                <span id="wifi-indicator" class="wfi mdl2 unknown" title="Wi-Fi status">&#xE701;</span>
+                <span id="controller-indicator" class="cmi inactive" title="Controllers connected">
+                    <svg class="cmi-icon" aria-hidden="true" viewBox="0 0 24 24">
+                        <path d="M7.2 10.1h9.6c2.1 0 3.8 1.6 4 3.7l.2 2.6c.1 1.2-.8 2.2-2 2.2-.6 0-1.1-.2-1.5-.7l-1.8-2h-7.4l-1.8 2c-.4.4-.9.7-1.5.7-1.2 0-2.1-1-2-2.2l.2-2.6c.2-2.1 1.9-3.7 4-3.7Z" />
+                        <path d="M8 12.5v2.8M6.6 13.9h2.8M15.5 13.1h.01M18 15h.01" />
+                    </svg>
+                    <span class="cmi-count">0</span>
+                </span>
             </div>
-            <div id="wifi-status" class="wifi-status"></div>
-            <div id="wifi-list" class="wifi-list"></div>
-            <form id="wifi-connect-form" class="wifi-form" hidden>
-                <div class="wifi-selected" id="wifi-selected"></div>
-                <input id="wifi-password" class="wifi-input" type="password" autocomplete="current-password" placeholder="Password" />
-                <button class="wifi-btn primary" id="btn-wifi-connect" type="submit">Connect</button>
-            </form>
+
+            <div class="title">
+                <span class="title-text">StageBox</span>
+                <span id="game-load-status" class="load-status idle" aria-label="Game library status" title="Game library status"></span>
+            </div>
+
+            <div class="actions">
+                <button class="btn iconbtn steam-btn" id="btn-open-steam" aria-label="Open Steam" title="Steam">
+                    <img class="steam-icon" src="./src/assets/images/steam-ico.png" alt="" aria-hidden="true" />
+                </button>
+                <button class="btn iconbtn mdl2" id="btn-tools-menu" aria-label="Open tools menu" aria-expanded="false"
+                    aria-controls="tools-menu-overlay" title="Tools">&#xE713;</button>
+            </div>
         </div>
+
+        <div id="tools-menu-overlay" class="menu-overlay" hidden>
+            <div class="tools-menu" role="menu" aria-label="Tools menu">
+                <button class="menu-item" id="btn-debug-bt-pairing" role="menuitem" aria-label="Bluetooth Pair">
+                    <span class="menu-icon" aria-hidden="true">&#x1F517;&#xFE0E;</span>
+                    <span class="menu-label">Bluetooth Pair</span>
+                </button>
+                <button class="menu-item" id="btn-wifi-networks" role="menuitem" aria-label="Wi-Fi Networks">
+                    <span class="menu-icon mdl2" aria-hidden="true">&#xE701;</span>
+                    <span class="menu-label">Wi-Fi Networks</span>
+                </button>
+                <button class="menu-item" id="btn-reload" role="menuitem" aria-label="Reload Launcher">
+                    <span class="menu-icon" aria-hidden="true">&#x1F5D8;&#xFE0E;</span>
+                    <span class="menu-label">Reload Games</span>
+                </button>
+                <button class="menu-item" id="btn-explorer" role="menuitem" aria-label="Open Games Folder">
+                    <span class="menu-icon" aria-hidden="true">&#x1F5C1;&#xFE0E;</span>
+                    <span class="menu-label">Open Games Folder</span>
+                </button>
+                <button class="menu-item" id="btn-debug-exit" role="menuitem" aria-label="Exit to Windows">
+                    <span class="menu-icon mdl2" aria-hidden="true">&#xE8BB;</span>
+                    <span class="menu-label">Exit Launcher</span>
+                </button>
+                <button class="menu-item" id="btn-restart" role="menuitem" aria-label="Restart System">
+                    <span class="menu-icon" aria-hidden="true">⟲</span>
+                    <span class="menu-label">Restart</span>
+                </button>
+                <button class="menu-item" id="btn-shutdown" role="menuitem" aria-label="Power Off">
+                    <span class="menu-icon mdl2" aria-hidden="true">&#xE7E8;</span>
+                    <span class="menu-label">Power Off</span>
+                </button>
+            </div>
+        </div>
+
+        <div id="wifi-overlay" class="wifi-overlay" hidden>
+            <div class="wifi-panel" role="dialog" aria-modal="true" aria-label="Wi-Fi Networks">
+                <div class="wifi-head">
+                    <h2>Wi-Fi Networks</h2>
+                    <div class="wifi-actions">
+                        <button class="wifi-btn" id="btn-wifi-refresh" type="button">Refresh</button>
+                        <button class="wifi-icon-btn mdl2" id="btn-wifi-close" type="button" aria-label="Close">&#xE711;</button>
+                    </div>
+                </div>
+                <div id="wifi-status" class="wifi-status"></div>
+                <div id="wifi-list" class="wifi-list"></div>
+                <form id="wifi-connect-form" class="wifi-form" hidden>
+                    <div class="wifi-selected" id="wifi-selected"></div>
+                    <input id="wifi-password" class="wifi-input" type="password" autocomplete="current-password" placeholder="Password" />
+                    <button class="wifi-btn primary" id="btn-wifi-connect" type="submit">Connect</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="content hidebar">
+
+        </div>
+
+        <div id="pairing-input-shield" class="pairing-input-shield" hidden></div>
     </div>
-
-    <div class="content hidebar">
-
-    </div>
-
-    <div id="pairing-input-shield" class="pairing-input-shield" hidden></div>
 
     <script src="./src/main.js" type="module"></script>
 </body>
