@@ -9,6 +9,8 @@ import { controllerFocusGrid, controllerInit, controllerRefresh } from "./featur
 import { closeMenu, initTopbarMenu } from "./features/topbarMenu.js";
 import { initWifiDialog, openWifiDialog } from "./features/wifi.js";
 import { initUIScale } from "./features/uiScale.js";
+import controllerIconURL from "./assets/images/controller-ico-2.png";
+import keyboardMouseIconURL from "./assets/images/kbm-ico.png";
 
 // build topbar once (or keep your existing HTML)
 document.querySelector("#btn-reload")?.addEventListener("click", () => window.location.reload());
@@ -52,9 +54,53 @@ function normalizeGame(g, fallbackID = "") {
     id: g.id || g.ID || fallbackID,
     name: g.name ?? g.Name ?? "",
     description: g.description ?? g.Description ?? "",
+    controls: g.controls ?? g.Controls ?? 0,
     thumbnailUrl: g.thumbnailUrl ?? g.ThumbnailURL ?? "",
     imageHash: g.imageHash ?? g.ImageHash ?? "",
   };
+}
+
+function normalizeControls(value) {
+  const mode = Number(value);
+  if (mode === 1) return ["keyboardMouse"];
+  if (mode === 2) return ["keyboardMouse", "controller"];
+  return ["controller"];
+}
+
+const controlIconURL = {
+  controller: controllerIconURL,
+  keyboardMouse: keyboardMouseIconURL,
+};
+
+function setControlIcons(card, value) {
+  const icons = normalizeControls(value);
+  const el = card.querySelector(".control-icons");
+  if (!el) return;
+
+  el.replaceChildren();
+  el.hidden = icons.length === 0;
+  el.classList.toggle("has-controller", icons.includes("controller"));
+  if (!icons.length) {
+    el.removeAttribute("aria-label");
+    el.removeAttribute("title");
+    return;
+  }
+
+  const label = icons.length === 2 ? "Controller and keyboard/mouse" :
+    icons[0] === "controller" ? "Controller" : "Keyboard and mouse";
+  el.setAttribute("aria-label", label);
+  el.title = label;
+
+  icons.forEach((kind) => {
+    const icon = document.createElement("span");
+    icon.className = `control-icon ${kind}`;
+    const img = document.createElement("img");
+    img.src = controlIconURL[kind];
+    img.alt = "";
+    img.decoding = "async";
+    icon.append(img);
+    el.append(icon);
+  });
 }
 
 function setLoadStatus(payload) {
@@ -103,10 +149,18 @@ function upsertCard(rawGame) {
     const body = document.createElement("div");
     body.className = "body";
 
+    const titleRow = document.createElement("div");
+    titleRow.className = "card-title-row";
+
     const title = document.createElement("div");
     title.className = "title";
 
-    body.append(title);
+    const controlIcons = document.createElement("div");
+    controlIcons.className = "control-icons";
+    controlIcons.hidden = true;
+
+    titleRow.append(title, controlIcons);
+    body.append(titleRow);
     card.append(img, body);
 
     card.addEventListener("click", () => Launch(g.id).catch(console.error));
@@ -122,6 +176,7 @@ function upsertCard(rawGame) {
 
   card.dataset.name = g.name || "";
   card.querySelector(".title").textContent = g.name || "";
+  setControlIcons(card, g.controls);
   const img = card.querySelector("img.thumb");
   img.src = g.thumbnailUrl || "";
   img.dataset.hash = g.imageHash || "";

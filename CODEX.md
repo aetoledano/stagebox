@@ -63,6 +63,7 @@ Expected fields map to `internal/games.GameData`:
   "image": "cover.jpg",
   "name": "Game Name",
   "description": "Optional description",
+  "controls": 2,
   "showCursor": false,
   "delayedKey": {
     "seconds": 4,
@@ -95,6 +96,7 @@ Notes:
 - `id` is optional in JSON. If omitted, the loader creates a deterministic UUID from the game name, falling back to the game directory name when the name is blank. If `id` is supplied, it must be a valid UUID.
 - JSON decoding is strict. Unknown keys fail because `jsonx.LoadJSONFile` uses `DisallowUnknownFields`.
 - `executable`, `image`, and `startsOn` are resolved relative to the game directory.
+- `controls` is optional and drives the card control icons. Use `0` or omit the field for controller-first games, `1` for keyboard/mouse-only games, and `2` for games playable with both controller and keyboard/mouse.
 - Images are processed into cached 1280px max-dimension JPEG thumbnails. The frontend receives `thumbnailUrl` and `imageHash`, not base64 image data.
 - JPEG, PNG, GIF, WebP, and AVIF source images are supported for thumbnail generation.
 - `delayedKey` is optional and intended for games that first open a keyboard-only launcher before the game itself starts. When present, the launcher waits for the game process PID, waits `seconds`, focuses that process window when possible, and sends one keyboard stroke named by `key`. If the process exits before the delay, the key is skipped. Supported key names match the controller key-map keyboard targets, such as `Enter`, `Space`, `Escape`, `Tab`, arrow keys, letters, digits, `Delete`, `F1`-`F12`, and `Numpad0`-`Numpad9`.
@@ -105,6 +107,7 @@ Notes:
 - The frontend uses Vite and plain JavaScript, not a component framework.
 - `frontend/index.html` contains the fixed topbar and `.content` shell.
 - `frontend/src/main.js` renders the game grid dynamically.
+- Game cards render optional control icons from `GameData.controls` as small inline icons in the card title row, with the game title left-aligned and the icons right-aligned. The icons use `frontend/src/assets/images/controller-ico-2.png` and `frontend/src/assets/images/kbm-ico.png`, normalized to white with CSS so they align in equal-size slots. When both icons are shown, keyboard/mouse is left and controller is right; in that mixed case the keyboard/mouse icon is vertically scaled to match the controller icon's perceived height.
 - `frontend/src/features/uiScale.js` scales `#stagebox-scale-root` against a 1920x1080 design surface. This keeps the launcher visually large on 1440p/4K displays while Windows remains at the monitor's max resolution for games.
 - Keyboard navigation is emitted by the Go backend through the same `pad:nav` and `pad:press` events as controller navigation. On Windows, the keyboard bridge maps arrow keys to navigation, Enter to `A`, Escape to `B`, and Space to `START`; `frontend/src/features/controller.js` should stay focused on consuming those events.
 - The topbar has a dedicated Steam button that calls `App.OpenSteam`; when Steam is installed, `OpenSteam` launches Steam as a launcher session so StageBox hides, controller navigation is paused, the normal Windows cursor is restored and parked at the bottom-right corner of the primary screen for Steam games that need mouse input, and StageBox restores after `Steam.exe` exits.

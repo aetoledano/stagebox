@@ -38,6 +38,50 @@
   border-top-right-radius: inherit;
 }
 
+.control-icons{
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+
+.control-icons[hidden]{
+  display: none;
+}
+
+.control-icon{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  opacity: .92;
+}
+
+.control-icon.keyboardMouse{
+  padding: 0;
+}
+
+.control-icon.controller{
+  padding: 0;
+}
+
+.control-icon img{
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+}
+
+.control-icons.has-controller .control-icon.keyboardMouse img{
+  transform: scaleY(.68);
+  transform-origin: center;
+}
+
 /* Controller/keyboard focus ring & lift */
 .card.gp-focus,
 .card:focus-visible{
@@ -52,8 +96,25 @@
 .card:focus-visible{ outline: none; }
 
 /* Body/text */
-.card .body{ padding: 12px; }
-.card .title{ margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+.card .body{ padding: 10px 12px 11px; }
+.card-title-row{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+.card .title{
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+}
 .card .desc{
   font-size: 13px; opacity: .9; line-height: 1.35;
   max-height: 2.8em; overflow: hidden;

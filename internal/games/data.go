@@ -15,6 +15,7 @@ type GameData struct {
 	ThumbnailURL string      `json:"thumbnailUrl"`
 	Name         string      `json:"name"`
 	Description  string      `json:"description"`
+	Controls     int         `json:"controls"`
 	ShowCursor   bool        `json:"showCursor"`
 	DelayedKey   *DelayedKey `json:"delayedKey"`
 	KeyMap       *KeyMap     `json:"keyMap"`
