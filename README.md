@@ -176,6 +176,8 @@ Important metadata notes:
 6. Open the tools menu for Bluetooth pairing, Wi-Fi networks, reloading games, opening the games folder, restart, power off, or exiting the launcher.
 7. Use the Steam button in the top bar to open Steam. If Steam is not found, StageBox downloads and starts the official Steam installer.
 
+Steam sessions follow existing and replacement clients from the same executable path and Windows session, instead of ending when the initial activation process exits. StageBox waits 10 seconds without a matching client or visible tracked game before returning, allowing update/restart handoffs. This also adds a 10-second delay after normal Steam shutdown. Background helpers alone do not keep the session open; Steam is not placed in a Job Object and its kill-shortcut behavior is unchanged. Update handoffs taking longer than the grace, or games started through unrelated processes, may still require further tracking adjustments.
+
 ## Development
 
 Common commands from the repository root:

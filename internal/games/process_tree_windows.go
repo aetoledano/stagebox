@@ -167,6 +167,7 @@ func processTreeRunning(known map[uint32]struct{}) map[uint32]struct{} {
 type processEntry struct {
 	pid       uint32
 	parentPID uint32
+	exeName   string
 }
 
 func processEntries() ([]processEntry, error) {
@@ -187,6 +188,7 @@ func processEntries() ([]processEntry, error) {
 		entries = append(entries, processEntry{
 			pid:       entry.ProcessID,
 			parentPID: entry.ParentProcessID,
+			exeName:   windows.UTF16ToString(entry.ExeFile[:]),
 		})
 		if err := windows.Process32Next(snapshot, &entry); err != nil {
 			if err == syscall.ERROR_NO_MORE_FILES {
