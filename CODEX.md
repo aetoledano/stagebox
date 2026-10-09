@@ -10,9 +10,11 @@ The project is Windows-focused at runtime, but many platform-specific tools have
 
 ## Main Layout
 
+- `README.md`: public-facing project documentation for GitHub. Keep install, usage, game metadata, feature list, troubleshooting, and publishing/license notes in sync with user-visible behavior.
 - `main.go`: Wails entry point. Embeds `frontend/dist`, loads `config.json`, extracts embedded runtime assets, binds `App`, and starts Wails.
 - `app.go`: Wails-bound backend API used by the frontend. Owns app lifecycle, game loading/launching, Bluetooth status events, controller bridge setup, and system actions.
-- `assets`: root-level embedded runtime assets that are needed by native backend code, currently `loading.jpg`.
+- `assets`: root-level project assets. `loading.jpg` is embedded for native runtime wallpaper use; `app-icon.png` is the default StageBox executable icon source, with `app-icon-2.png` retained as an alternative.
+- `build/appicon.png`: ignored Wails executable icon input. The Makefile `app-icon` target copies it from `APP_ICON` (default `assets/app-icon.png`) before Wails builds, then Wails regenerates the Windows icon resource during `make build-win`/`make release`.
 - `internal/assets`: runtime asset helpers, including embedded asset extraction, thumbnail cache path, and Wails thumbnail HTTP handler.
 - `internal/config`: JSON config shape. Currently `gamesRoot` and `debug`.
 - `internal/games`: game metadata model, concurrent game directory loader, thumbnail generation/cache support, launch/kill tracking, and Steam session launching.
@@ -60,10 +62,14 @@ Expected fields map to `internal/games.GameData`:
 ```json
 {
   "executable": "Game.exe",
+  "args": ["-fullscreen"],
+  "startsOn": ".",
   "image": "cover.jpg",
   "name": "Game Name",
   "description": "Optional description",
   "controls": 2,
+  "trackMode": "processTree",
+  "waitAfterExitSeconds": 1,
   "showCursor": false,
   "delayedKey": {
     "seconds": 4,
@@ -95,7 +101,10 @@ Notes:
 
 - `id` is optional in JSON. If omitted, the loader creates a deterministic UUID from the game name, falling back to the game directory name when the name is blank. If `id` is supplied, it must be a valid UUID.
 - JSON decoding is strict. Unknown keys fail because `jsonx.LoadJSONFile` uses `DisallowUnknownFields`.
-- `executable`, `image`, and `startsOn` are resolved relative to the game directory.
+- `executable`, `image`, and relative `startsOn` values are resolved relative to the game directory. If `startsOn` is omitted, the working directory defaults to the game directory.
+- `args` is optional and passes command-line arguments directly to the launched executable.
+- `trackMode` is optional. Omit it or use `process` for the original behavior where the session ends when the started executable exits. Use `processTree` for games whose configured executable is a launcher/bootstrapper that spawns child game processes; on Windows the session remains active while the discovered process tree has a visible top-level window. This avoids restoring StageBox while a spawned child game is running, but still restores after the visible game window closes even if helper child processes stay alive. If no visible window appears within the startup grace period, StageBox logs the remaining PIDs and restores.
+- `waitAfterExitSeconds` is optional. With `process`, it delays restoring StageBox after the started executable exits. With `processTree`, it adds extra delay after the process tree has ended.
 - `controls` is optional and drives the card control icons. Use `0` or omit the field for controller-first games, `1` for keyboard/mouse-only games, and `2` for games playable with both controller and keyboard/mouse.
 - Images are processed into cached 1280px max-dimension JPEG thumbnails. The frontend receives `thumbnailUrl` and `imageHash`, not base64 image data.
 - JPEG, PNG, GIF, WebP, and AVIF source images are supported for thumbnail generation.
@@ -107,7 +116,9 @@ Notes:
 - The frontend uses Vite and plain JavaScript, not a component framework.
 - `frontend/index.html` contains the fixed topbar and `.content` shell.
 - `frontend/src/main.js` renders the game grid dynamically.
+- `assets/app-icon.png` is the default StageBox app icon asset. Override `APP_ICON` to use an alternative such as `assets/app-icon-2.png`. The Wails build uses the copy at `build/appicon.png` for the compiled executable icon.
 - Game cards render optional control icons from `GameData.controls` as small inline icons in the card title row, with the game title left-aligned and the icons right-aligned. The icons use `frontend/src/assets/images/controller-ico-2.png` and `frontend/src/assets/images/kbm-ico.png`, normalized to white with CSS so they align in equal-size slots. When both icons are shown, keyboard/mouse is left and controller is right; in that mixed case the keyboard/mouse icon is vertically scaled to match the controller icon's perceived height.
+- Do not use `content-visibility` or broad CSS containment on the game grid. WebView2 can return from hidden fullscreen game sessions with stale card tiles or transparent/missing image fragments; scrolling repaints them, so `frontend/src/main.js` schedules a small scroll nudge plus `.grid.repaint` sequence on `game:end` while the WebView surface settles.
 - `frontend/src/features/uiScale.js` scales `#stagebox-scale-root` against a 1920x1080 design surface. This keeps the launcher visually large on 1440p/4K displays while Windows remains at the monitor's max resolution for games.
 - Keyboard navigation is emitted by the Go backend through the same `pad:nav` and `pad:press` events as controller navigation. On Windows, the keyboard bridge maps arrow keys to navigation, Enter to `A`, Escape to `B`, and Space to `START`; `frontend/src/features/controller.js` should stay focused on consuming those events.
 - The topbar has a dedicated Steam button that calls `App.OpenSteam`; when Steam is installed, `OpenSteam` launches Steam as a launcher session so StageBox hides, controller navigation is paused, the normal Windows cursor is restored and parked at the bottom-right corner of the primary screen for Steam games that need mouse input, and StageBox restores after `Steam.exe` exits.
@@ -130,9 +141,10 @@ When adding new backend methods that the frontend calls, update the Go `App` typ
 - Wails exposes exported methods on `App` to JavaScript. Keep method signatures simple and JSON-serializable.
 - `App.games` is a map keyed by `uuid.UUID`; frontend receives it as an object and normalizes it in `main.js`.
 - `App.LoadGames` populates `App.games` incrementally before emitting each `game:loaded` event, so launch can work while the rest of the library is still loading.
-- `Launch` is asynchronous from the UI perspective. It starts a goroutine that waits for the process and restores the launcher afterward. `internal/games.LaunchGame` returns a handle with `PID`, `Done`, and `Exited` channels so launch-time helpers such as `delayedKey` can react to process startup and cancellation without consuming the exit result.
+- `Launch` is asynchronous from the UI perspective. It starts a goroutine that waits for the configured session and restores the launcher afterward. `internal/games.LaunchGame` returns a handle with `PID`, `Done`, and `Exited` channels so launch-time helpers such as `delayedKey` can react to process startup and cancellation without consuming the exit result. Launches write JSON metadata locks to `%TEMP%/<game-uuid>.lock`; stale locks are removed automatically when their recorded PID is no longer running, which prevents a Windows restart during gameplay from permanently blocking that game. The launch path logs executable path, working directory, args, track mode, lock path, PID, and exit result through `logx`, and emits `game:launch-error` on startup/session errors.
+- Startup focusing uses `controller.FocusProcessWindow`, which calls `ShowWindow(SW_RESTORE)` only when Windows reports the target window is minimized, then calls `SetForegroundWindow`. Keep the restore-if-minimized behavior because some fast-starting games create their window minimized; do not repeatedly force `SW_RESTORE` on already visible game windows because it can interfere with fullscreen startup.
 - `App.OpenSteam` uses `internal/games.LaunchSteamSession` when Steam is installed. It starts `Steam.exe` as a launcher session, hides StageBox, pauses controller navigation, and restores the launcher after that Steam process exits.
-- Startup calls `display.UsePrimaryMaxResolution` instead of forcing 1080p. The launcher should not lower the Windows display mode because borderless/windowed games can inherit that mode or render incorrectly when they try to use native resolution.
+- `main.go` calls `display.UsePrimaryMaxResolutionChanged` before `wails.Run` instead of changing display mode inside Wails `OnStartup`. If the mode changes, startup waits briefly for the monitor to settle before WebView creation. Keep display changes before Wails starts because slow HDMI/TV resolution handshakes can leave Wails/WebView black if the mode switch races DOM startup. The launcher should not lower the Windows display mode because borderless/windowed games can inherit that mode or render incorrectly when they try to use native resolution.
 - `assets/loading.jpg` is embedded in the Go executable, then extracted to `cache/assets/loading.jpg` on startup. The native wallpaper code still receives a file path because Windows GDI+ loads the image from disk; deployments do not need to copy a separate `loading.jpg` next to `stagebox.exe` for the default background.
 - `KillRunning` kills the tracked game process tree on Windows via hidden `taskkill /T /F`, with a direct process kill fallback. This matters for launchers that spawn child game processes.
 - The XInput bridge and keyboard bridge emit Wails events and have pause/resume behavior so launcher navigation does not continue while a game, Steam session, or pairing flow is active. On Windows, the controller bridge prefers XInput and falls back to `winmm` joystick polling when Bluetooth/HID controllers are present but not exposed as XInput slots; the fallback converts joystick buttons, left stick axes, and POV hat into the same launcher `pad:*` events.
@@ -148,6 +160,7 @@ When adding new backend methods that the frontend calls, update the Go `App` typ
 - The pairing wizard lifecycle is guarded against reentry. After the wizard window closes, the launcher terminates a lingering `DevicePairingWizard.exe` process before restoring itself so quick reopen attempts do not wait on Windows' delayed process cleanup.
 - `status:update` includes `controllerCount`, sourced from XInput slots first and from the Windows `winmm` joystick fallback when no XInput slot is active. It also includes Wi-Fi fields `wifiAvailable`, `wifiConnected`, `wifiSSID`, and `wifiState` from `netsh wlan show interfaces`. The controller indicator renders a small inline SVG controller icon plus that count so it can inherit CSS color consistently across Windows/Linux. `btConnected` is Bluetooth-controller-specific, not the generic controller count; the Bluetooth scan uses the Win32 Bluetooth device API and only counts controller-like devices with the Bluetooth `FConnected` flag set. Avoid using present-only PnP `BTHENUM`/`BTHLEDEVICE` as a connected signal because it can mark remembered or adapter-side devices connected. The Bluetooth indicator is slashed gray when Bluetooth is off/disabled/unknown, plain gray when Bluetooth is on but no Bluetooth controller is connected, and green when a Bluetooth controller is connected. The Wi-Fi indicator is slashed gray when no Wi-Fi interface is available, gray when Wi-Fi is available but disconnected, and green when connected.
 - Startup logs include `version=<value>` and `pid=<value>`. `appVersion` uses incremental pre-1.0 values such as `0.01`; keep bumping `0.xx` during Bluetooth iteration and reserve `1.0` for when Bluetooth pairing is fully working. The app writes `stagebox.log`, truncated on launcher start; `svc.vbs` and `systemsvcs.ps1` write service-loop diagnostics to `svc.log`. Installer legacy cleanup removes old log names such as `launcher.log`, `stagebox-debug.log`, and `stagebox-svc.log`.
+- Startup calls `WindowFullscreen` in `OnStartup`, then `OnDomReady` logs `dom ready` and performs `bringBack` immediately plus delayed retries. Keep this because shell/autologon sessions can otherwise show a black shell surface if Wails starts behind the kiosk background. Frontend boot also calls `App.Info("frontend boot")` and `App.Info("frontend games rendered")`; if `svc.log` shows `Starting StageBox...` but the screen is black, inspect `stagebox.log` for these readiness markers to separate shell-loop launch from WebView/JS rendering. Do not add display wake or display mode pulse recovery without careful testing; those attempts made at least one slow monitor harder to recover.
 
 ## Build And Dev Commands
 
@@ -166,6 +179,7 @@ Command details:
 
 - `make` builds the packaged Windows amd64 Wails executable at `build/bin/stagebox.exe`.
 - `make release` depends on `build-win`, recreates `release`, and copies the Windows staging bundle there: `stagebox.exe`, `install-stagebox.ps1`, `svc.vbs`, `systemsvcs.ps1`, and `elevated-PS.cmd`. `make sbrelease` is a compatibility alias.
+- `make build-win` and `make build-linux` run `make app-icon` first, copying `APP_ICON` (default `assets/app-icon.png`) into Wails' ignored `build/appicon.png` input.
 - `make dev` runs `wails dev -tags 'webkit2_41'`.
 - `make build-linux` runs a Linux Wails build with the same tag.
 - `make build-win` cross-builds a Windows amd64 executable using MinGW variables from the Makefile.

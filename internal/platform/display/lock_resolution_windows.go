@@ -222,3 +222,13 @@ func UsePrimaryMaxResolution() error {
 	_, err := ForceMaxResolution(nil)
 	return err
 }
+
+func UsePrimaryMaxResolutionChanged() (bool, error) {
+	dev := deviceNameForPrimary()
+	cur, _ := currentMode(dev)
+	applied, err := ForceMaxResolution(dev)
+	if err != nil {
+		return false, err
+	}
+	return cur.w != applied.w || cur.h != applied.h || (applied.hz != 0 && cur.hz != applied.hz), nil
+}

@@ -124,7 +124,11 @@ func loadGame(gamePath string, opts LoadOptions) (*GameData, error) {
 
 	gd.Image = filepath.Join(gamePath, gd.Image)
 	gd.Executable = filepath.Join(gamePath, gd.Executable)
-	gd.StartsOn = gamePath
+	if gd.StartsOn == "" {
+		gd.StartsOn = gamePath
+	} else if !filepath.IsAbs(gd.StartsOn) {
+		gd.StartsOn = filepath.Join(gamePath, gd.StartsOn)
+	}
 
 	if opts.ThumbnailDir != "" && opts.ThumbnailURLPrefix != "" && gd.Image != "" {
 		thumb, err := EnsureThumbnail(gd.ID, gd.Image, opts.ThumbnailDir, opts.ThumbnailURLPrefix)

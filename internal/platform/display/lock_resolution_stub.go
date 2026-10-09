@@ -9,3 +9,7 @@ func ForcePrimary1080pOrBest() error {
 func UsePrimaryMaxResolution() error {
 	return nil
 }
+
+func UsePrimaryMaxResolutionChanged() (bool, error) {
+	return false, nil
+}

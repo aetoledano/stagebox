@@ -7,18 +7,21 @@ import (
 )
 
 type GameData struct {
-	ID           uuid.UUID   `json:"id"`
-	StartsOn     string      `json:"startsOn"`
-	Executable   string      `json:"executable"`
-	Image        string      `json:"image"`
-	ImageHash    string      `json:"imageHash"`
-	ThumbnailURL string      `json:"thumbnailUrl"`
-	Name         string      `json:"name"`
-	Description  string      `json:"description"`
-	Controls     int         `json:"controls"`
-	ShowCursor   bool        `json:"showCursor"`
-	DelayedKey   *DelayedKey `json:"delayedKey"`
-	KeyMap       *KeyMap     `json:"keyMap"`
+	ID                   uuid.UUID   `json:"id"`
+	StartsOn             string      `json:"startsOn"`
+	Executable           string      `json:"executable"`
+	Args                 []string    `json:"args"`
+	Image                string      `json:"image"`
+	ImageHash            string      `json:"imageHash"`
+	ThumbnailURL         string      `json:"thumbnailUrl"`
+	Name                 string      `json:"name"`
+	Description          string      `json:"description"`
+	Controls             int         `json:"controls"`
+	ShowCursor           bool        `json:"showCursor"`
+	TrackMode            string      `json:"trackMode"`
+	WaitAfterExitSeconds float64     `json:"waitAfterExitSeconds"`
+	DelayedKey           *DelayedKey `json:"delayedKey"`
+	KeyMap               *KeyMap     `json:"keyMap"`
 }
 
 type DelayedKey struct {

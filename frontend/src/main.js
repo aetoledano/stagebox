@@ -36,6 +36,8 @@ const cardsByID = new Map();
 const pairingShield = document.getElementById("pairing-input-shield");
 let pairingShieldActive = false;
 
+Info("frontend boot").catch(() => {});
+
 function setDebugToolsVisible(debug) {
   document.querySelectorAll("[data-debug-only]").forEach((el) => {
     el.hidden = !debug;
@@ -192,6 +194,36 @@ function mergeReturnedGames(raw) {
   list.forEach(upsertCard);
 }
 
+function repaintGridOnce() {
+  grid.classList.add("repaint");
+  requestAnimationFrame(() => {
+    grid.classList.remove("repaint");
+  });
+}
+
+function nudgeScrollRepaint() {
+  const scroller = container;
+  const original = scroller.scrollTop;
+  const max = scroller.scrollHeight - scroller.clientHeight;
+  if (max <= 0) {
+    repaintGridOnce();
+    return;
+  }
+
+  const delta = original < max ? 1 : -1;
+  scroller.scrollTop = original + delta;
+  requestAnimationFrame(() => {
+    scroller.scrollTop = original;
+    repaintGridOnce();
+  });
+}
+
+function repaintGridAfterRestore() {
+  [0, 120, 350, 800].forEach((delay) => {
+    window.setTimeout(nudgeScrollRepaint, delay);
+  });
+}
+
 controllerInit({
   getCards: () => [...document.querySelectorAll(".content .grid .card, .content .scrollport .grid .card")],
   getBarButtons: () => [...document.querySelectorAll(".topbar .btn")],
@@ -205,6 +237,13 @@ EventsOn("game:loaded", upsertCard);
 EventsOn("games:loading", setLoadStatus);
 EventsOn("game:load-error", (payload) => {
   console.warn("Game load failed:", payload);
+});
+EventsOn("game:launch-error", (payload) => {
+  console.warn("Game launch failed:", payload);
+});
+EventsOn("game:end", () => {
+  repaintGridAfterRestore();
+  controllerFocusGrid();
 });
 EventsOn("status:update", (payload) => {
   if (payload && "debug" in payload) setDebugToolsVisible(!!payload.debug);
@@ -236,6 +275,7 @@ async function loadAndShow() {
     return {};
   });
   mergeReturnedGames(raw);
+  Info("frontend games rendered").catch(() => {});
 }
 
 initTopbarMenu({ onClose: () => controllerFocusGrid() });

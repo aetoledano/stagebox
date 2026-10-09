@@ -7,8 +7,10 @@
   gap: 18px;
   padding: 18px;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  content-visibility: auto;
-  contain: content;
+}
+
+.grid.repaint{
+  transform: translateZ(0);
 }
 
 /* Card container */

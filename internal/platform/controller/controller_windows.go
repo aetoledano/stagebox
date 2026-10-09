@@ -34,6 +34,7 @@ var (
 	procSendMessage              = user32.NewProc("SendMessageW")
 	procSetForegroundWindow      = user32.NewProc("SetForegroundWindow")
 	procShowWindow               = user32.NewProc("ShowWindow")
+	procIsIconic                 = user32.NewProc("IsIconic")
 )
 
 type xinputGamepad struct {
@@ -117,6 +118,7 @@ const (
 	vkRightAlt           = 0xA5
 	wmNextDlgCtl         = 0x0028
 	swShow               = 5
+	swRestore            = 9
 )
 
 const (
@@ -1221,7 +1223,10 @@ func focusProcessWindow(pid uint32) bool {
 	if hwnd == 0 {
 		return false
 	}
-	procShowWindow.Call(hwnd, swShow)
+	minimized, _, _ := procIsIconic.Call(hwnd)
+	if minimized != 0 {
+		procShowWindow.Call(hwnd, swRestore)
+	}
 	procSetForegroundWindow.Call(hwnd)
 	return true
 }

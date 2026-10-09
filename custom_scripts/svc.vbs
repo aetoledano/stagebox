@@ -52,6 +52,8 @@ sh.CurrentDirectory = WD
 If fs.FileExists(EXIT_FLAG) Then fs.DeleteFile EXIT_FLAG, True
 
 Log "=== StageBox service loop start ==="
+Log "User=" & sh.ExpandEnvironmentStrings("%USERNAME%") & " Session=" & sh.ExpandEnvironmentStrings("%SESSIONNAME%") & " ComSpec=" & sh.ExpandEnvironmentStrings("%ComSpec%")
+Log "WorkingDirectory=" & sh.CurrentDirectory & " EXE exists=" & fs.FileExists(EXE)
 
 Do
   If Not fs.FileExists(EXE) Then

@@ -4,7 +4,9 @@ import (
 	"embed"
 	cacheassets "launcher/internal/assets"
 	"launcher/internal/jsonx"
+	"launcher/internal/platform/display"
 	"os"
+	"time"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -43,6 +45,15 @@ func main() {
 	}
 	lgx.Infof("config gamesRoot=%q debug=%v", config.GamesRoot, config.Debug)
 
+	if changed, err := display.UsePrimaryMaxResolutionChanged(); err != nil {
+		lgx.Warnf("display max-resolution setup failed before Wails start: %v", err)
+	} else if changed {
+		lgx.Info("display mode changed before Wails start; waiting for monitor settle")
+		time.Sleep(3 * time.Second)
+	} else {
+		lgx.Debug("display already at max resolution before Wails start")
+	}
+
 	loadingWallpaperPath := "loading.jpg"
 	if path, err := cacheassets.ExtractEmbeddedFile(runtimeAssets, "assets/loading.jpg", "loading.jpg"); err != nil {
 		lgx.Errorf("failed to extract embedded loading wallpaper: %v", err)
@@ -62,6 +73,7 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
+		OnDomReady:       app.domReady,
 		Bind: []any{
 			app,
 		},

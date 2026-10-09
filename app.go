@@ -8,11 +8,9 @@ import (
 	"launcher/internal/platform/bluetooth"
 	"launcher/internal/platform/controller"
 	"launcher/internal/platform/cursor"
-	"launcher/internal/platform/display"
 	"launcher/internal/platform/shell"
 	"launcher/internal/platform/wallpaper"
 	"launcher/internal/platform/wifi"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -75,10 +73,6 @@ func (a *App) startup(ctx context.Context) {
 		println("ensureSelfAsShell failed:", err.Error())
 	}
 
-	if err := display.UsePrimaryMaxResolution(); err != nil {
-		lgx.Warnf("display max-resolution setup failed: %v", err)
-	}
-
 	// Start the bottom-most wallpaper host
 	loadingWallpaper := a.loadingWallpaper
 	if loadingWallpaper == "" {
@@ -99,6 +93,19 @@ func (a *App) startup(ctx context.Context) {
 
 	// Go fullscreen as soon as the window is ready
 	runtime.WindowFullscreen(ctx)
+}
+
+func (a *App) domReady(ctx context.Context) {
+	a.ctx = ctx
+	lgx.Info("dom ready")
+	a.bringBack()
+	go func() {
+		for _, delay := range []time.Duration{1500 * time.Millisecond, 4 * time.Second} {
+			time.Sleep(delay)
+			lgx.Debug("dom ready delayed bringBack")
+			a.bringBack()
+		}
+	}()
 }
 
 func (a *App) bringBack() {
@@ -156,7 +163,7 @@ func (a *App) Shutdown() {
 	exec.Command("shutdown", "-s", "-t", "0").Start()
 	runtime.Quit(a.ctx)
 
-	log.Println("shutting down...")
+	lgx.Info("shutting down...")
 }
 
 func (a *App) Restart() {
@@ -166,7 +173,7 @@ func (a *App) Restart() {
 	exec.Command("shutdown", "-r", "-t", "0").Start()
 	runtime.Quit(a.ctx)
 
-	log.Println("restarting...")
+	lgx.Info("restarting...")
 }
 
 func (a *App) ExitLauncher() {
@@ -429,7 +436,7 @@ func (a *App) Launch(id uuid.UUID) {
 	game := a.games[id]
 	a.gamesMu.RUnlock()
 	if game == nil {
-		log.Printf("Game with ID %s not found", id)
+		lgx.Warnf("launch requested for missing game id=%s", id)
 		return
 	}
 
@@ -452,7 +459,8 @@ func (a *App) Launch(id uuid.UUID) {
 		}
 	}
 
-	log.Printf("Launching game: %s", game.Name)
+	lgx.Infof("launch requested id=%s name=%q exe=%q dir=%q args=%q trackMode=%q waitAfterExit=%.2f showCursor=%v keyMap=%v delayedKey=%v",
+		game.ID, game.Name, game.Executable, game.StartsOn, game.Args, game.TrackMode, game.WaitAfterExitSeconds, game.ShowCursor, game.KeyMap != nil, game.DelayedKey != nil)
 
 	// Tell the frontend to pause gamepad loops, overlays, etc.
 	runtime.EventsEmit(a.ctx, "game:start", map[string]any{
@@ -463,6 +471,7 @@ func (a *App) Launch(id uuid.UUID) {
 	runtime.WindowHide(a.ctx)
 
 	run := games.LaunchGame(game)
+	lgx.Debugf("launch session created id=%s name=%q lock=%q trackMode=%s", game.ID, game.Name, run.LockPath, run.TrackMode)
 	if game.DelayedKey != nil || gameKeyMapActive {
 		a.handleGameProcessStarted(game, run.PID, run.Exited, gameKeyMapActive)
 	} else {
@@ -479,9 +488,14 @@ func (a *App) Launch(id uuid.UUID) {
 
 		err := <-run.Done
 		if err != nil {
-			log.Printf("Error launching game %s: %v", game.Name, err)
+			lgx.Errorf("launch session ended with error id=%s name=%q err=%v", game.ID, game.Name, err)
+			runtime.EventsEmit(a.ctx, "game:launch-error", map[string]any{
+				"id":    game.ID.String(),
+				"name":  game.Name,
+				"error": err.Error(),
+			})
 		} else {
-			log.Printf("Game %s exited", game.Name)
+			lgx.Infof("launch session ended id=%s name=%q", game.ID, game.Name)
 		}
 
 		cursor.RestoreSystemCursor()
@@ -514,7 +528,7 @@ func (a *App) handleGameProcessStarted(game *games.GameData, pidCh <-chan int, e
 			return
 		}
 
-		go a.focusGamePIDFor(uint32(pid), 4*time.Second)
+		go a.focusGamePIDFor(uint32(pid), 6*time.Second)
 		if gameKeyMapActive && a.pad != nil {
 			a.pad.SetGameInputTargetPID(uint32(pid))
 			lgx.Debugf("game key-map target pid=%d", pid)
@@ -532,14 +546,16 @@ func (a *App) focusGameAtStartup(pidCh <-chan int) {
 		if !ok || pid <= 0 {
 			return
 		}
-		a.focusGamePIDFor(uint32(pid), 4*time.Second)
+		a.focusGamePIDFor(uint32(pid), 6*time.Second)
 	}()
 }
 
 func (a *App) focusGamePIDFor(pid uint32, duration time.Duration) {
 	deadline := time.Now().Add(duration)
 	for time.Now().Before(deadline) {
-		controller.FocusProcessWindow(pid)
+		if controller.FocusProcessWindow(pid) {
+			return
+		}
 		time.Sleep(250 * time.Millisecond)
 	}
 }

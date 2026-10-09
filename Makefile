@@ -1,4 +1,5 @@
 APP ?= stagebox
+APP_ICON ?= assets/app-icon.png
 MINGW  ?= x86_64-w64-mingw32
 WIN_CC ?= $(MINGW)-gcc
 WIN_CXX?= $(MINGW)-g++
@@ -13,11 +14,17 @@ dev:
 	@wails dev -tags '$(WAILS_TAGS)'
 
 .PHONY: build-linux
-build-linux:
+build-linux: app-icon
 	@wails build -tags '$(WAILS_TAGS)'
 
+.PHONY: app-icon
+app-icon:
+	@test -f "$(APP_ICON)" || { echo "Missing app icon: $(APP_ICON)"; exit 1; }
+	@mkdir -p build
+	@cp "$(APP_ICON)" build/appicon.png
+
 .PHONY: build-win
-build-win:
+build-win: app-icon
 	@echo "→ Building Windows amd64 .exe with Wails…"
 	@GOCACHE=$(GO_BUILD_CACHE) CGO_ENABLED=1 CC=$(WIN_CC) CXX=$(WIN_CXX) GOOS=windows GOARCH=amd64 \
 		wails build -platform windows/amd64
