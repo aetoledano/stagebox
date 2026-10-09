@@ -15,13 +15,14 @@ import (
 )
 
 var (
-	curMu  sync.Mutex
-	curCmd *exec.Cmd
+	curMu      sync.Mutex
+	curProcess gameProcess
 )
 
 const (
 	TrackModeProcess     = "process"
 	TrackModeProcessTree = "processTree"
+	TrackModeJob         = "job"
 
 	lockVersion       = 1
 	pendingLockMaxAge = 2 * time.Minute
@@ -49,6 +50,7 @@ type launchLockMetadata struct {
 	PID        int       `json:"pid"`
 	LauncherID int       `json:"launcherPid"`
 	TrackMode  string    `json:"trackMode"`
+	JobName    string    `json:"jobName,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
 	UpdatedAt  time.Time `json:"updatedAt"`
 }
@@ -59,13 +61,27 @@ type lockState struct {
 	valid bool
 }
 
+type gameProcess interface {
+	PID() int
+	JobName() string
+	Wait() error
+	Kill() error
+	Close()
+}
+
+type commandGameProcess struct {
+	cmd       *exec.Cmd
+	game      *GameData
+	trackMode string
+}
+
 func KillRunning() error {
 	curMu.Lock()
 	defer curMu.Unlock()
-	if curCmd == nil || curCmd.Process == nil {
+	if curProcess == nil {
 		return errors.New("no game running")
 	}
-	return killProcessTree(curCmd.Process)
+	return curProcess.Kill()
 }
 
 func LaunchGame(game *GameData) RunningGame {
@@ -88,7 +104,7 @@ func LaunchGame(game *GameData) RunningGame {
 		return result
 	}
 
-	trackMode = normalizeTrackMode(game.TrackMode)
+	trackMode = gameTrackingMode(game)
 	result.TrackMode = trackMode
 	result.LockPath = gameLockPath(game)
 	result.StartedAt = time.Now()
@@ -103,54 +119,83 @@ func LaunchGame(game *GameData) RunningGame {
 	}
 
 	go func() {
+		var waitErr error
 		defer func() {
 			lock.release()
+			done <- waitErr
 			close(done)
 			close(exited)
 		}()
 
 		lgx.Infof("game process start requested name=%q exe=%q dir=%q args=%q trackMode=%s lock=%q", game.Name, game.Executable, game.StartsOn, game.Args, trackMode, lock.path)
-		cmd := exec.Command(game.Executable, game.Args...)
-		cmd.Dir = game.StartsOn
-		curMu.Lock()
-		curCmd = cmd
-		curMu.Unlock()
-
-		if err := cmd.Start(); err != nil {
-			curMu.Lock()
-			curCmd = nil
-			curMu.Unlock()
+		process, err := startGameProcess(game, trackMode)
+		if err != nil {
 			close(pid)
 			lgx.Errorf("game process start failed name=%q exe=%q dir=%q err=%v", game.Name, game.Executable, game.StartsOn, err)
-			done <- err
+			waitErr = err
 			return
 		}
-		lock.update(game, trackMode, cmd.Process.Pid)
-		lgx.Infof("game process started name=%q pid=%d trackMode=%s", game.Name, cmd.Process.Pid, trackMode)
-		pid <- cmd.Process.Pid
+		curMu.Lock()
+		curProcess = process
+		curMu.Unlock()
+		defer func() {
+			curMu.Lock()
+			if curProcess == process {
+				curProcess = nil
+			}
+			process.Close()
+			curMu.Unlock()
+		}()
+		lock.update(game, trackMode, process.PID(), process.JobName())
+		lgx.Infof("game process started name=%q pid=%d trackMode=%s", game.Name, process.PID(), trackMode)
+		pid <- process.PID()
 		close(pid)
 
-		waitErr := cmd.Wait()
-		if trackMode == TrackModeProcessTree {
-			lgx.Debugf("waiting for game process tree name=%q rootPID=%d extraWait=%s", game.Name, cmd.Process.Pid, waitAfterExitDuration(game))
-			waitForProcessTreeExit(cmd.Process.Pid, waitAfterExitDuration(game))
-		} else if wait := waitAfterExitDuration(game); wait > 0 {
-			lgx.Debugf("waiting after game process exit name=%q wait=%s", game.Name, wait)
-			time.Sleep(wait)
-		}
+		waitErr = process.Wait()
 		if waitErr != nil {
-			lgx.Warnf("game process exited with error name=%q pid=%d err=%v", game.Name, cmd.Process.Pid, waitErr)
+			lgx.Warnf("game process exited with error name=%q pid=%d err=%v", game.Name, process.PID(), waitErr)
 		} else {
-			lgx.Infof("game process exited name=%q pid=%d", game.Name, cmd.Process.Pid)
+			lgx.Infof("game process exited name=%q pid=%d", game.Name, process.PID())
 		}
-		done <- waitErr
-
-		curMu.Lock()
-		curCmd = nil
-		curMu.Unlock()
 	}()
 
 	return result
+}
+
+func startGameProcess(game *GameData, trackMode string) (gameProcess, error) {
+	if game.AdvancedTracking {
+		return startAdvancedGameProcess(game)
+	}
+	cmd := exec.Command(game.Executable, game.Args...)
+	cmd.Dir = game.StartsOn
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return &commandGameProcess{cmd: cmd, game: game, trackMode: trackMode}, nil
+}
+
+func (p *commandGameProcess) PID() int        { return p.cmd.Process.Pid }
+func (p *commandGameProcess) JobName() string { return "" }
+func (p *commandGameProcess) Close()          {}
+func (p *commandGameProcess) Kill() error     { return killProcessTree(p.cmd.Process) }
+
+func (p *commandGameProcess) Wait() error {
+	err := p.cmd.Wait()
+	if p.trackMode == TrackModeProcessTree {
+		lgx.Debugf("waiting for game process tree name=%q rootPID=%d extraWait=%s", p.game.Name, p.PID(), waitAfterExitDuration(p.game))
+		waitForProcessTreeExit(p.PID(), waitAfterExitDuration(p.game))
+	} else if wait := waitAfterExitDuration(p.game); wait > 0 {
+		lgx.Debugf("waiting after game process exit name=%q wait=%s", p.game.Name, wait)
+		time.Sleep(wait)
+	}
+	return err
+}
+
+func gameTrackingMode(game *GameData) string {
+	if game.AdvancedTracking {
+		return TrackModeJob
+	}
+	return normalizeTrackMode(game.TrackMode)
 }
 
 func normalizeTrackMode(mode string) string {
@@ -179,7 +224,7 @@ func acquireLaunchLock(game *GameData, trackMode string) (*launchLock, error) {
 		file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 		if err == nil {
 			lock := &launchLock{path: path, file: file}
-			lock.update(game, trackMode, 0)
+			lock.update(game, trackMode, 0, "")
 			return lock, nil
 		}
 		if !errors.Is(err, fs.ErrExist) {
@@ -221,6 +266,9 @@ func readLaunchLock(path string) lockState {
 }
 
 func launchLockActive(state lockState) bool {
+	if state.valid && state.meta.JobName != "" {
+		return advancedJobActive(state.meta.JobName)
+	}
 	if state.valid && state.meta.PID > 0 {
 		return processExists(state.meta.PID)
 	}
@@ -235,7 +283,7 @@ func launchLockActive(state lockState) bool {
 	return !t.IsZero() && time.Since(t) < pendingLockMaxAge
 }
 
-func (l *launchLock) update(game *GameData, trackMode string, pid int) {
+func (l *launchLock) update(game *GameData, trackMode string, pid int, jobName string) {
 	if l == nil || l.file == nil {
 		return
 	}
@@ -248,6 +296,7 @@ func (l *launchLock) update(game *GameData, trackMode string, pid int) {
 		PID:        pid,
 		LauncherID: os.Getpid(),
 		TrackMode:  trackMode,
+		JobName:    jobName,
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}

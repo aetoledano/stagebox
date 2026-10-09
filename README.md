@@ -128,6 +128,7 @@ Fuller example:
   "image": "cover.jpg",
   "controls": 2,
   "trackMode": "processTree",
+  "advancedTracking": false,
   "waitAfterExitSeconds": 1,
   "showCursor": false,
   "delayedKey": {
@@ -161,6 +162,7 @@ Important metadata notes:
 - Relative `executable`, `image`, and `startsOn` values are resolved from the game folder.
 - `controls` controls the card icons: omit or use `0` for controller, `1` for keyboard/mouse, and `2` for both.
 - `trackMode` can be omitted or set to `process` for normal process waiting. Use `processTree` for launchers that spawn the real game as a child process.
+- `advancedTracking` is optional and defaults to `false`. Set it to `true` on Windows for games whose launcher exits before the real game: StageBox attaches the initial executable to a Job Object before it runs, follows its child processes, and makes the kill shortcut terminate the group. It overrides `trackMode` for that game. A 30-second window-start/handoff grace and a 2-second window-free quiet period prevent invisible helpers from keeping the session open indefinitely; `waitAfterExitSeconds` adds a final delay. It cannot track a game started by an unrelated external service or already-running launcher. Disable it if a game is incompatible with Job Objects. Closing StageBox does not automatically kill the group.
 - `showCursor` should be enabled for games or launchers that need the Windows cursor visible.
 - `keyMap` maps gamepad input to keyboard or mouse input while the game is running. See `keypad-sample.json` for a working sample.
 

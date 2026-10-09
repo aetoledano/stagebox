@@ -19,6 +19,7 @@ type GameData struct {
 	Controls             int         `json:"controls"`
 	ShowCursor           bool        `json:"showCursor"`
 	TrackMode            string      `json:"trackMode"`
+	AdvancedTracking     bool        `json:"advancedTracking"`
 	WaitAfterExitSeconds float64     `json:"waitAfterExitSeconds"`
 	DelayedKey           *DelayedKey `json:"delayedKey"`
 	KeyMap               *KeyMap     `json:"keyMap"`

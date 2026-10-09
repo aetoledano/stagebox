@@ -489,8 +489,8 @@ func (a *App) Launch(id uuid.UUID) {
 		}
 	}
 
-	lgx.Infof("launch requested id=%s name=%q exe=%q dir=%q args=%q trackMode=%q waitAfterExit=%.2f showCursor=%v keyMap=%v delayedKey=%v",
-		game.ID, game.Name, game.Executable, game.StartsOn, game.Args, game.TrackMode, game.WaitAfterExitSeconds, game.ShowCursor, game.KeyMap != nil, game.DelayedKey != nil)
+	lgx.Infof("launch requested id=%s name=%q exe=%q dir=%q args=%q trackMode=%q advancedTracking=%v waitAfterExit=%.2f showCursor=%v keyMap=%v delayedKey=%v",
+		game.ID, game.Name, game.Executable, game.StartsOn, game.Args, game.TrackMode, game.AdvancedTracking, game.WaitAfterExitSeconds, game.ShowCursor, game.KeyMap != nil, game.DelayedKey != nil)
 
 	// Tell the frontend to pause gamepad loops, overlays, etc.
 	runtime.EventsEmit(a.ctx, "game:start", map[string]any{
