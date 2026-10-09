@@ -2,7 +2,6 @@ import { GetStatuses } from "/wailsjs/go/main/App.js";
 import { EventsOn } from "/wailsjs/runtime";
 
 const BT_GLYPH = "\uE702"; // Segoe MDL2 Bluetooth
-const WIFI_GLYPH = "\uE701"; // Segoe MDL2 Wi-Fi
 
 let btState = "unknown";
 let controllerCount = 0;
@@ -48,7 +47,6 @@ function applyControllerIndicator(count) {
 }
 
 function applyWiFi(el) {
-  el.textContent = WIFI_GLYPH;
   el.classList.remove("on", "idle", "off", "unknown");
 
   if (!wifiAvailable) {
@@ -85,7 +83,10 @@ function paintBTStatus(payload) {
   if (payload && "wifiState" in payload) wifiState = String(payload.wifiState || "");
 
   if (el) applyBT(el);
-  if (wifiEl) applyWiFi(wifiEl);
+  if (wifiEl) {
+    applyWiFi(wifiEl);
+    wifiEl.setAttribute("aria-label", wifiEl.title);
+  }
   applyControllerIndicator(controllerCount);
 }
 

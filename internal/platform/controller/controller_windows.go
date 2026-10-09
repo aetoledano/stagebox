@@ -202,6 +202,7 @@ func loadLegacyJoystick() error {
 type XInputBridge struct {
 	ctx            context.Context
 	paused         atomic.Int32 // 0 = running, 1 = paused
+	resetInput     atomic.Bool
 	quit           chan struct{}
 	mouse          atomic.Int32 // 0 = launcher events, 1 = OS cursor mode
 	keyboard       atomic.Int32 // 0 = launcher events, 1 = pairing keyboard mode
@@ -213,7 +214,7 @@ type XInputBridge struct {
 	mouseStick     string
 	mouseStepX     int
 	mouseStepY     int
-	// edge/hold state (cleared when paused)
+	// Edge/hold state is owned by the polling loop.
 	prevButtons uint16
 	holdDir     string
 	nextRepeat  time.Time
@@ -240,21 +241,19 @@ func StartXInputBridge(ctx context.Context) *XInputBridge {
 
 func (b *XInputBridge) Pause() {
 	b.paused.Store(1)
-	// clear edges so resuming doesn't emit stale presses
-	b.prevButtons = 0
-	b.holdDir = ""
-	b.nextRepeat = time.Time{}
+	b.resetInput.Store(true)
 }
-func (b *XInputBridge) Resume()          { b.paused.Store(0) }
+func (b *XInputBridge) Resume() {
+	b.resetInput.Store(true)
+	b.paused.Store(0)
+}
 func (b *XInputBridge) EnableMouseMode() { b.EnableMouseModeForPID(0) }
 func (b *XInputBridge) EnableMouseModeForPID(pid uint32) {
 	b.inputTargetPID.Store(pid)
 	b.gameKeys.Store(0)
 	b.keyboard.Store(0)
 	b.mouse.Store(1)
-	b.prevButtons = 0
-	b.holdDir = ""
-	b.nextRepeat = time.Time{}
+	b.resetInput.Store(true)
 }
 func (b *XInputBridge) DisableMouseMode() {
 	b.mouse.Store(0)
@@ -265,9 +264,7 @@ func (b *XInputBridge) DisableMouseMode() {
 	b.mouseStick = ""
 	b.mouseStepX = 0
 	b.mouseStepY = 0
-	b.prevButtons = 0
-	b.holdDir = ""
-	b.nextRepeat = time.Time{}
+	b.resetInput.Store(true)
 }
 func (b *XInputBridge) EnablePairingKeyboardModeForPID(pid uint32) {
 	b.inputTargetPID.Store(pid)
@@ -275,18 +272,14 @@ func (b *XInputBridge) EnablePairingKeyboardModeForPID(pid uint32) {
 	b.gameKeys.Store(0)
 	b.clearGameKeyMap()
 	b.keyboard.Store(1)
-	b.prevButtons = 0
-	b.holdDir = ""
-	b.nextRepeat = time.Time{}
+	b.resetInput.Store(true)
 }
 func (b *XInputBridge) DisablePairingKeyboardMode() {
 	b.keyboard.Store(0)
 	b.mouse.Store(0)
 	b.gameKeys.Store(0)
 	b.inputTargetPID.Store(0)
-	b.prevButtons = 0
-	b.holdDir = ""
-	b.nextRepeat = time.Time{}
+	b.resetInput.Store(true)
 }
 func (b *XInputBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
 	bindings := buildGameKeyBindings(keyMap)
@@ -322,9 +315,7 @@ func (b *XInputBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
 	b.mouse.Store(0)
 	b.keyboard.Store(0)
 	b.gameKeys.Store(1)
-	b.prevButtons = 0
-	b.holdDir = ""
-	b.nextRepeat = time.Time{}
+	b.resetInput.Store(true)
 	return true
 }
 func (b *XInputBridge) SetGameInputTargetPID(pid uint32) {
@@ -336,9 +327,7 @@ func (b *XInputBridge) DisableGameKeyMap() {
 	b.mouseStick = ""
 	b.mouseStepX = 0
 	b.mouseStepY = 0
-	b.prevButtons = 0
-	b.holdDir = ""
-	b.nextRepeat = time.Time{}
+	b.resetInput.Store(true)
 }
 
 func (b *XInputBridge) clearGameKeyMap() {
@@ -573,6 +562,7 @@ func (b *XInputBridge) loop() {
 	defer func() { _ = recover() }()
 	stickDZ := int16(8500)
 	var lastConn time.Time
+	var launcherGate launcherInputGate
 
 	t := time.NewTicker(8 * time.Millisecond)
 	defer t.Stop()
@@ -583,6 +573,12 @@ func (b *XInputBridge) loop() {
 			return
 		case <-t.C:
 		}
+		if b.resetInput.Swap(false) {
+			b.prevButtons = 0
+			b.holdDir = ""
+			b.nextRepeat = time.Time{}
+			launcherGate.reset()
+		}
 
 		gp, ok := b.pollXInputGamepad(lastConn)
 		if ok {
@@ -591,6 +587,7 @@ func (b *XInputBridge) loop() {
 			gp, ok = b.pollLegacyGamepad()
 			if !ok {
 				b.prevButtons, b.holdDir = 0, ""
+				launcherGate.reset()
 				continue
 			}
 		}
@@ -600,6 +597,7 @@ func (b *XInputBridge) loop() {
 
 		both := (buttons&XINPUT_GAMEPAD_START) != 0 && (buttons&XINPUT_GAMEPAD_BACK) != 0
 		if both {
+			launcherGate.reset()
 			if !b.killArmed {
 				if b.killCombo.IsZero() {
 					b.killCombo = time.Now()
@@ -616,25 +614,34 @@ func (b *XInputBridge) loop() {
 		b.killArmed = false
 
 		if b.mouse.Load() == 1 {
+			launcherGate.reset()
 			b.handleMouseMode(gp, buttons, just)
 			b.prevGamepad = gp
 			b.prevButtons = buttons
 			continue
 		}
 		if b.keyboard.Load() == 1 {
+			launcherGate.reset()
 			b.handlePairingKeyboardMode(gp, buttons, just)
 			b.prevGamepad = gp
 			b.prevButtons = buttons
 			continue
 		}
 		if b.gameKeys.Load() == 1 {
+			launcherGate.reset()
 			b.handleGameKeyMap(gp, buttons, just)
 			b.prevGamepad = gp
 			b.prevButtons = buttons
 			continue
 		}
 
-		if b.paused.Load() == 1 {
+		lx, ly := int(gp.sThumbLX), int(gp.sThumbLY)
+		dz := int(stickDZ)
+		neutral := buttons == 0 && lx*lx+ly*ly < dz*dz
+		if !launcherGate.allow(b.paused.Load() == 0 && LauncherHasFocus(), neutral) {
+			b.holdDir = ""
+			b.nextRepeat = time.Time{}
+			b.prevGamepad = gp
 			b.prevButtons = buttons
 			continue
 		}
@@ -654,8 +661,6 @@ func (b *XInputBridge) loop() {
 		}
 
 		held := ""
-		lx, ly := int(gp.sThumbLX), int(gp.sThumbLY)
-		dz := int(stickDZ)
 		if lx*lx+ly*ly >= dz*dz { // outside radial deadzone
 			if math.Abs(float64(lx)) >= math.Abs(float64(ly)) {
 				if lx < 0 {

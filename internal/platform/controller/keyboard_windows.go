@@ -17,7 +17,9 @@ const (
 	whKeyboardLL = 13
 	hcAction     = 0
 	wmKeydown    = 0x0100
+	wmKeyup      = 0x0101
 	wmSysKeydown = 0x0104
+	wmSysKeyup   = 0x0105
 	wmQuit       = 0x0012
 )
 
@@ -32,17 +34,20 @@ var (
 	procDispatchMessage             = keyboardUser32.NewProc("DispatchMessageW")
 	procPostThreadMessage           = keyboardUser32.NewProc("PostThreadMessageW")
 	procKeyboardGetForegroundWindow = keyboardUser32.NewProc("GetForegroundWindow")
+	procKeyboardGetClassName        = keyboardUser32.NewProc("GetClassNameW")
 	procKeyboardGetCurrentThreadID  = keyboardKernel32.NewProc("GetCurrentThreadId")
 )
 
 type KeyboardBridge struct {
-	ctx      context.Context
-	paused   atomic.Int32
-	threadID atomic.Uint32
-	quit     chan struct{}
-	stopOnce sync.Once
-	hook     windows.Handle
-	callback uintptr
+	ctx       context.Context
+	paused    atomic.Int32
+	threadID  atomic.Uint32
+	quit      chan struct{}
+	stopOnce  sync.Once
+	resetKeys atomic.Bool
+	keys      launcherKeyState
+	hook      windows.Handle
+	callback  uintptr
 }
 
 type keyboardHookEvent struct {
@@ -80,12 +85,14 @@ func (b *KeyboardBridge) Pause() {
 		return
 	}
 	b.paused.Store(1)
+	b.resetKeys.Store(true)
 }
 
 func (b *KeyboardBridge) Resume() {
 	if b == nil {
 		return
 	}
+	b.resetKeys.Store(true)
 	b.paused.Store(0)
 }
 
@@ -133,9 +140,9 @@ func (b *KeyboardBridge) loop() {
 }
 
 func (b *KeyboardBridge) hookProc(nCode int, wParam uintptr, lParam uintptr) uintptr {
-	if nCode == hcAction && (wParam == wmKeydown || wParam == wmSysKeydown) {
+	if nCode == hcAction && (wParam == wmKeydown || wParam == wmSysKeydown || wParam == wmKeyup || wParam == wmSysKeyup) {
 		event := (*keyboardHookEvent)(unsafe.Pointer(lParam))
-		if b.handleKey(event.VKCode) {
+		if b.handleKeyEvent(event.VKCode, wParam == wmKeydown || wParam == wmSysKeydown) {
 			return 1
 		}
 	}
@@ -144,9 +151,18 @@ func (b *KeyboardBridge) hookProc(nCode int, wParam uintptr, lParam uintptr) uin
 	return ret
 }
 
-func (b *KeyboardBridge) handleKey(vk uint32) bool {
-	if b.paused.Load() == 1 || !foregroundBelongsToCurrentProcess() {
+func (b *KeyboardBridge) handleKeyEvent(vk uint32, down bool) bool {
+	switch vk {
+	case vkLeft, vkRight, vkUp, vkDown, vkReturn, vkEscape, vkSpace:
+	default:
 		return false
+	}
+	if b.resetKeys.Swap(false) {
+		b.keys.reset()
+	}
+	emit, consume := b.keys.update(vk, down, b.paused.Load() == 0 && LauncherHasFocus())
+	if !emit {
+		return consume
 	}
 
 	switch vk {
@@ -171,7 +187,7 @@ func (b *KeyboardBridge) handleKey(vk uint32) bool {
 	return true
 }
 
-func foregroundBelongsToCurrentProcess() bool {
+func LauncherHasFocus() bool {
 	hwnd, _, _ := procKeyboardGetForegroundWindow.Call()
 	if hwnd == 0 {
 		return false
@@ -179,9 +195,10 @@ func foregroundBelongsToCurrentProcess() bool {
 
 	var pid uint32
 	procGetWindowThreadProcessID.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
-	return pid == windows.GetCurrentProcessId()
-}
-
-func ForegroundBelongsToCurrentProcess() bool {
-	return foregroundBelongsToCurrentProcess()
+	if pid != windows.GetCurrentProcessId() {
+		return false
+	}
+	var className [256]uint16
+	n, _, _ := procKeyboardGetClassName.Call(hwnd, uintptr(unsafe.Pointer(&className[0])), uintptr(len(className)))
+	return n != 0 && windows.UTF16ToString(className[:]) == LauncherWindowClass
 }

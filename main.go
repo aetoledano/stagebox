@@ -4,6 +4,7 @@ import (
 	"embed"
 	cacheassets "launcher/internal/assets"
 	"launcher/internal/jsonx"
+	"launcher/internal/platform/controller"
 	"launcher/internal/platform/display"
 	"os"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 
 	"launcher/internal/config"
 	lgx "launcher/internal/logx"
@@ -74,6 +76,9 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
 		OnDomReady:       app.domReady,
+		Windows: &windows.Options{
+			WindowClassName: controller.LauncherWindowClass,
+		},
 		Bind: []any{
 			app,
 		},

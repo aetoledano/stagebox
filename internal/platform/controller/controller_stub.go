@@ -35,8 +35,9 @@ func (b *XInputBridge) Stop()                            {}
 func (b *KeyboardBridge) Pause()                         {}
 func (b *KeyboardBridge) Resume()                        {}
 func (b *KeyboardBridge) Stop()                          {}
-func ForegroundBelongsToCurrentProcess() bool {
-	return false
+func LauncherHasFocus() bool {
+	// Non-Windows builds have no global input bridges; keep normal Wails actions available.
+	return true
 }
 func FocusProcessWindow(pid uint32) bool     { return false }
 func HasVisibleWindowForPID(pid uint32) bool { return false }

@@ -24,13 +24,22 @@
 }
 
 /* Left indicators row — lock to 20px and center items */
+.topbar .indicators{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+}
+
 .topbar .indicators > *{
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 20px;
+  flex: 0 0 auto;
   font-weight: 600;
   font-size: 16px;
+  line-height: 20px;
 }
 
 
@@ -464,6 +473,20 @@ button,
 }
 
 
+.wfi-icon{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  font-size: 18px;
+  line-height: 20px;
+  /* Center the rotated glyph's visible shape, not its asymmetric font cell. */
+  transform: translateY(-3.5px) rotate(45deg);
+  transform-origin: center;
+}
+
 /* Bluetooth indicator */
 .bti.on,
 .wfi.on {
@@ -523,20 +546,18 @@ button,
   height: 20px;
   display: block;
   flex: 0 0 20px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  background: currentColor;
+  -webkit-mask: url("../assets/images/controller-ico.png") center / 22px 22px no-repeat;
+  mask: url("../assets/images/controller-ico.png") center / 22px 22px no-repeat;
 }
 
 .cmi-count{
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 8px;
-  font-size: 14px;
+  display: block;
+  height: 20px;
+  min-width: 2ch;
+  font-size: 16px;
   line-height: 20px;
+  text-align: center;
 }
 
 .cmi.active {

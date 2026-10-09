@@ -36,6 +36,8 @@ type App struct {
 	config             *config.Config
 	games              map[uuid.UUID]*games.GameData
 	gamesMu            sync.RWMutex
+	gameSessionMu      sync.Mutex
+	gameSessionActive  bool
 	pairingMu          sync.Mutex
 	pairingActive      bool
 	thumbnailDir       string
@@ -103,7 +105,11 @@ func (a *App) domReady(ctx context.Context) {
 		for _, delay := range []time.Duration{1500 * time.Millisecond, 4 * time.Second} {
 			time.Sleep(delay)
 			lgx.Debug("dom ready delayed bringBack")
-			a.bringBack()
+			a.gameSessionMu.Lock()
+			if !a.gameSessionActive {
+				a.bringBack()
+			}
+			a.gameSessionMu.Unlock()
 		}
 	}()
 }
@@ -431,12 +437,36 @@ func (a *App) LoadGames() map[uuid.UUID]*games.GameData {
 	return a.games
 }
 
+func (a *App) beginGameSession(name string) bool {
+	a.gameSessionMu.Lock()
+	defer a.gameSessionMu.Unlock()
+	if a.gameSessionActive {
+		lgx.Debugf("launch ignored name=%q: another session is active", name)
+		return false
+	}
+	if !controller.LauncherHasFocus() {
+		lgx.Debugf("launch ignored name=%q: StageBox is not foreground", name)
+		return false
+	}
+	a.gameSessionActive = true
+	return true
+}
+
+func (a *App) endGameSession() {
+	a.gameSessionMu.Lock()
+	a.gameSessionActive = false
+	a.gameSessionMu.Unlock()
+}
+
 func (a *App) Launch(id uuid.UUID) {
 	a.gamesMu.RLock()
 	game := a.games[id]
 	a.gamesMu.RUnlock()
 	if game == nil {
 		lgx.Warnf("launch requested for missing game id=%s", id)
+		return
+	}
+	if !a.beginGameSession(game.Name) {
 		return
 	}
 
@@ -480,6 +510,7 @@ func (a *App) Launch(id uuid.UUID) {
 
 	// Don't block the call; wait in background
 	go func() {
+		defer a.endGameSession()
 		if game.ShowCursor {
 			cursor.ForceCursorVisible()
 		} else {
@@ -687,6 +718,9 @@ func (a *App) OpenSteam() error {
 }
 
 func (a *App) launchSteamSession(steamExe string) {
+	if !a.beginGameSession("Steam") {
+		return
+	}
 	a.pauseKeyboardInput()
 	if a.pad != nil {
 		a.pad.Pause()
@@ -702,6 +736,7 @@ func (a *App) launchSteamSession(steamExe string) {
 
 	run := games.LaunchSteamSession(steamExe)
 	go func() {
+		defer a.endGameSession()
 		err := <-run.Done
 		if err != nil {
 			lgx.Errorf("Steam session ended with error: %v", err)
