@@ -208,6 +208,7 @@ type XInputBridge struct {
 	keyboard       atomic.Int32 // 0 = launcher events, 1 = pairing keyboard mode
 	gameKeys       atomic.Int32 // 0 = launcher events, 1 = game key-map mode
 	inputTargetPID atomic.Uint32
+	volumeAction   func(string)
 	keyBindings    []gameKeyBinding
 	keyBindingsMu  sync.Mutex
 	activeGameKeys map[byte]bool
@@ -225,15 +226,16 @@ type XInputBridge struct {
 	killArmed   bool
 }
 
-func StartXInputBridge(ctx context.Context) *XInputBridge {
+func StartXInputBridge(ctx context.Context, volumeAction func(string)) *XInputBridge {
 	xinputOK := loadXInput() == nil
 	legacyOK := loadLegacyJoystick() == nil
 	if !xinputOK && !legacyOK {
 		return nil // no controller polling API available
 	}
 	b := &XInputBridge{
-		ctx:  ctx,
-		quit: make(chan struct{}),
+		ctx:          ctx,
+		quit:         make(chan struct{}),
+		volumeAction: volumeAction,
 	}
 	go b.loop()
 	return b
@@ -563,6 +565,7 @@ func (b *XInputBridge) loop() {
 	stickDZ := int16(8500)
 	var lastConn time.Time
 	var launcherGate launcherInputGate
+	var volumeStick volumeStickState
 
 	t := time.NewTicker(8 * time.Millisecond)
 	defer t.Stop()
@@ -574,6 +577,7 @@ func (b *XInputBridge) loop() {
 		case <-t.C:
 		}
 		if b.resetInput.Swap(false) {
+			volumeStick.reset()
 			b.prevButtons = 0
 			b.holdDir = ""
 			b.nextRepeat = time.Time{}
@@ -586,6 +590,7 @@ func (b *XInputBridge) loop() {
 		} else {
 			gp, ok = b.pollLegacyGamepad()
 			if !ok {
+				volumeStick.reset()
 				b.prevButtons, b.holdDir = 0, ""
 				launcherGate.reset()
 				continue
@@ -597,6 +602,7 @@ func (b *XInputBridge) loop() {
 
 		both := (buttons&XINPUT_GAMEPAD_START) != 0 && (buttons&XINPUT_GAMEPAD_BACK) != 0
 		if both {
+			volumeStick.reset()
 			launcherGate.reset()
 			if !b.killArmed {
 				if b.killCombo.IsZero() {
@@ -614,6 +620,7 @@ func (b *XInputBridge) loop() {
 		b.killArmed = false
 
 		if b.mouse.Load() == 1 {
+			volumeStick.reset()
 			launcherGate.reset()
 			b.handleMouseMode(gp, buttons, just)
 			b.prevGamepad = gp
@@ -621,6 +628,7 @@ func (b *XInputBridge) loop() {
 			continue
 		}
 		if b.keyboard.Load() == 1 {
+			volumeStick.reset()
 			launcherGate.reset()
 			b.handlePairingKeyboardMode(gp, buttons, just)
 			b.prevGamepad = gp
@@ -628,6 +636,7 @@ func (b *XInputBridge) loop() {
 			continue
 		}
 		if b.gameKeys.Load() == 1 {
+			volumeStick.reset()
 			launcherGate.reset()
 			b.handleGameKeyMap(gp, buttons, just)
 			b.prevGamepad = gp
@@ -637,8 +646,12 @@ func (b *XInputBridge) loop() {
 
 		lx, ly := int(gp.sThumbLX), int(gp.sThumbLY)
 		dz := int(stickDZ)
+		enabled := b.paused.Load() == 0 && LauncherHasFocus()
+		if action := volumeStick.update(time.Now(), int(gp.sThumbRX), int(gp.sThumbRY), enabled); action != "" && b.volumeAction != nil {
+			b.volumeAction(action)
+		}
 		neutral := buttons == 0 && lx*lx+ly*ly < dz*dz
-		if !launcherGate.allow(b.paused.Load() == 0 && LauncherHasFocus(), neutral) {
+		if !launcherGate.allow(enabled, neutral) {
 			b.holdDir = ""
 			b.nextRepeat = time.Time{}
 			b.prevGamepad = gp

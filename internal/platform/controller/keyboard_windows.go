@@ -39,15 +39,17 @@ var (
 )
 
 type KeyboardBridge struct {
-	ctx       context.Context
-	paused    atomic.Int32
-	threadID  atomic.Uint32
-	quit      chan struct{}
-	stopOnce  sync.Once
-	resetKeys atomic.Bool
-	keys      launcherKeyState
-	hook      windows.Handle
-	callback  uintptr
+	ctx          context.Context
+	paused       atomic.Int32
+	threadID     atomic.Uint32
+	quit         chan struct{}
+	stopOnce     sync.Once
+	resetKeys    atomic.Bool
+	keys         launcherKeyState
+	volumeKeys   launcherKeyState
+	volumeAction func(string)
+	hook         windows.Handle
+	callback     uintptr
 }
 
 type keyboardHookEvent struct {
@@ -67,10 +69,11 @@ type keyboardMessage struct {
 	Pt      point
 }
 
-func StartKeyboardBridge(ctx context.Context) *KeyboardBridge {
+func StartKeyboardBridge(ctx context.Context, volumeAction func(string)) *KeyboardBridge {
 	b := &KeyboardBridge{
-		ctx:  ctx,
-		quit: make(chan struct{}),
+		ctx:          ctx,
+		quit:         make(chan struct{}),
+		volumeAction: volumeAction,
 	}
 	go b.loop()
 	go func() {
@@ -152,6 +155,15 @@ func (b *KeyboardBridge) hookProc(nCode int, wParam uintptr, lParam uintptr) uin
 }
 
 func (b *KeyboardBridge) handleKeyEvent(vk uint32, down bool) bool {
+	if action := volumeKeyAction(vk); action != "" && b.volumeAction != nil {
+		wasHeld := b.volumeKeys.held[vk]
+		emit, _ := b.volumeKeys.update(vk, down, true)
+		if emit && (action != "mute" || !wasHeld) {
+			b.volumeAction("media-" + action)
+		}
+		// Own these keys even without Explorer; do not let Windows adjust twice.
+		return true
+	}
 	switch vk {
 	case vkLeft, vkRight, vkUp, vkDown, vkReturn, vkEscape, vkSpace:
 	default:

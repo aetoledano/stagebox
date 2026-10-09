@@ -17,6 +17,10 @@
                 <span id="wifi-indicator" class="wfi unknown" title="Wi-Fi status" role="img" aria-label="Wi-Fi status">
                     <span class="wfi-icon mdl2" aria-hidden="true">&#xE701;</span>
                 </span>
+                <span id="sound-indicator" class="sound-indicator unavailable" role="img" aria-label="Sound unavailable" title="Sound unavailable">
+                    <span class="sound-icon mdl2" aria-hidden="true">&#xE767;</span>
+                    <span class="sound-percent">--</span>
+                </span>
                 <span id="controller-indicator" class="cmi inactive" title="Controllers connected">
                     <span class="cmi-icon" aria-hidden="true"></span>
                     <span class="cmi-count">0</span>
@@ -46,6 +50,10 @@
                 <button class="menu-item" id="btn-wifi-networks" role="menuitem" aria-label="Wi-Fi Networks">
                     <span class="menu-icon mdl2" aria-hidden="true">&#xE701;</span>
                     <span class="menu-label">Wi-Fi Networks</span>
+                </button>
+                <button class="menu-item" id="btn-sound-settings" role="menuitem" aria-label="Sound Settings">
+                    <span class="menu-icon mdl2" aria-hidden="true">&#xE767;</span>
+                    <span class="menu-label">Sound Settings</span>
                 </button>
                 <button class="menu-item" id="btn-reload" role="menuitem" aria-label="Reload Launcher">
                     <span class="menu-icon" aria-hidden="true">&#x1F5D8;&#xFE0E;</span>
@@ -87,6 +95,34 @@
                     <button class="wifi-btn primary" id="btn-wifi-connect" type="submit">Connect</button>
                 </form>
             </div>
+        </div>
+
+        <div id="sound-overlay" class="sound-overlay" hidden>
+            <div class="sound-panel" role="dialog" aria-modal="true" aria-labelledby="sound-heading">
+                <div class="sound-head">
+                    <h2 id="sound-heading">Sound Settings</h2>
+                    <div class="sound-actions">
+                        <button id="btn-sound-refresh" class="sound-icon-btn mdl2" type="button" aria-label="Refresh sound outputs" title="Refresh">&#xE72C;</button>
+                        <button id="btn-sound-close" class="sound-icon-btn mdl2" type="button" aria-label="Close sound settings" title="Close">&#xE711;</button>
+                    </div>
+                </div>
+                <div class="sound-volume-row">
+                    <button id="btn-sound-mute" class="sound-icon-btn mdl2" type="button" aria-label="Mute" title="Mute" aria-pressed="false">&#xE767;</button>
+                    <input id="sound-volume" type="range" min="0" max="100" step="2" aria-label="Output volume" />
+                    <output id="sound-volume-value" for="sound-volume">--</output>
+                </div>
+                <div id="sound-status" class="sound-status" role="status"></div>
+                <div id="sound-devices" class="sound-devices" role="radiogroup" aria-label="Output device"></div>
+            </div>
+        </div>
+
+        <div id="volume-feedback" class="volume-feedback" role="status" aria-live="polite" hidden>
+            <span id="volume-feedback-icon" class="mdl2" aria-hidden="true">&#xE767;</span>
+            <div class="volume-feedback-body">
+                <div id="volume-feedback-device" class="volume-feedback-device"></div>
+                <progress id="volume-feedback-bar" max="100" value="0" aria-label="Output volume"></progress>
+            </div>
+            <span id="volume-feedback-value" class="volume-feedback-value">0%</span>
         </div>
 
         <div class="content hidebar">

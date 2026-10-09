@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"launcher/internal/games"
+	"launcher/internal/platform/audio"
 	"launcher/internal/platform/bluetooth"
 	"launcher/internal/platform/controller"
 	"launcher/internal/platform/cursor"
@@ -49,6 +50,11 @@ type App struct {
 	btConnected        bool
 	controllerCount    int
 	wifiStatus         wifi.Status
+	soundMu            sync.Mutex
+	soundStatus        audio.Status
+	soundError         string
+	soundKnown         bool
+	soundInput         chan string
 }
 
 // NewApp creates a new App application struct
@@ -88,8 +94,11 @@ func (a *App) startup(ctx context.Context) {
 		println("wallpaper host failed:", err.Error())
 	}
 
-	a.pad = controller.StartXInputBridge(ctx)
-	a.keyboard = controller.StartKeyboardBridge(ctx)
+	a.soundInput = make(chan string, 16)
+	go a.watchSound()
+	go a.handleSoundInput()
+	a.pad = controller.StartXInputBridge(ctx, a.queueSoundInput)
+	a.keyboard = controller.StartKeyboardBridge(ctx, a.queueSoundInput)
 
 	go a.watchBluetooth()
 

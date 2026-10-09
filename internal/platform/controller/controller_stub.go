@@ -14,8 +14,8 @@ type GameKeyMap struct {
 	MouseSensitivity int
 }
 
-func StartXInputBridge(ctx context.Context) *XInputBridge { return nil }
-func StartKeyboardBridge(ctx context.Context) *KeyboardBridge {
+func StartXInputBridge(ctx context.Context, volumeAction func(string)) *XInputBridge { return nil }
+func StartKeyboardBridge(ctx context.Context, volumeAction func(string)) *KeyboardBridge {
 	return nil
 }
 func (b *XInputBridge) Pause()                           {}

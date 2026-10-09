@@ -1,6 +1,7 @@
 import "./css/base.css";
 import "./css/cards.css";
 import "./css/topbar.css";
+import "./css/sound.css";
 import { OpenSteam, Shutdown, Restart, ExitLauncher, OpenBluetoothPairing, LoadGames, Launch, Explorer, GetStatuses, Info, Warn, Error } from "/wailsjs/go/main/App.js";
 import { EventsOn } from "/wailsjs/runtime";
 import { initBTIndicator } from "./features/bluetooth.js";
@@ -8,6 +9,7 @@ import { startClock } from "./features/clock.js";
 import { controllerFocusGrid, controllerInit, controllerRefresh } from "./features/controller.js";
 import { closeMenu, initTopbarMenu } from "./features/topbarMenu.js";
 import { initWifiDialog, openWifiDialog } from "./features/wifi.js";
+import { initSoundSettings, openSoundSettings } from "./features/sound.js";
 import { initUIScale } from "./features/uiScale.js";
 import controllerIconURL from "./assets/images/controller-ico-2.png";
 import keyboardMouseIconURL from "./assets/images/kbm-ico.png";
@@ -19,6 +21,10 @@ document.querySelector("#btn-debug-bt-pairing")?.addEventListener("click", () =>
 document.querySelector("#btn-wifi-networks")?.addEventListener("click", () => {
   closeMenu();
   openWifiDialog();
+});
+document.querySelector("#btn-sound-settings")?.addEventListener("click", () => {
+  closeMenu();
+  openSoundSettings();
 });
 document.querySelector("#btn-restart")?.addEventListener("click", () => Restart());
 document.querySelector("#btn-shutdown")?.addEventListener("click", () => Shutdown());
@@ -280,6 +286,7 @@ async function loadAndShow() {
 
 initTopbarMenu({ onClose: () => controllerFocusGrid() });
 initWifiDialog({ onClose: () => controllerFocusGrid() });
+initSoundSettings({ onClose: () => controllerFocusGrid() });
 initBTIndicator();
 GetStatuses().then((s) => setDebugToolsVisible(!!s.debug)).catch(() => setDebugToolsVisible(false));
 loadAndShow();

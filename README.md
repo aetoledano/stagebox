@@ -13,6 +13,7 @@ The project can be inspected and partially built on Linux, but the production ru
 - Optional per-game controller-to-keyboard/mouse mappings.
 - Optional delayed key press for games that open an intermediate launcher.
 - Steam button that opens Steam if installed or downloads the installer when missing.
+- Sound Settings for selecting the Windows default output device, with current-output highlighting, master volume, and mute controls.
 - Bluetooth status indicator and Windows pairing wizard integration.
 - Wi-Fi scan/connect overlay for kiosk setups without the Windows shell.
 - Controller count, Bluetooth, Wi-Fi, and clock indicators in the top bar.
@@ -175,6 +176,7 @@ Important metadata notes:
 5. StageBox hides while the game is running and restores itself after the tracked process exits.
 6. Open the tools menu for Bluetooth pairing, Wi-Fi networks, reloading games, opening the games folder, restart, power off, or exiting the launcher.
 7. Use the Steam button in the top bar to open Steam. If Steam is not found, StageBox downloads and starts the official Steam installer.
+8. Open Sound Settings from the tools menu to choose an output device. While StageBox is focused, right-stick up/down adjusts volume; the speaker indicator and temporary volume bar show the current level. Right-stick volume control is disabled during games. Keyboard multimedia volume/mute keys work system-wide, including games, without bringing StageBox to the foreground.
 
 Steam sessions follow existing and replacement clients from the same executable path and Windows session, instead of ending when the initial activation process exits. StageBox waits 10 seconds without a matching client or visible tracked game before returning, allowing update/restart handoffs. This also adds a 10-second delay after normal Steam shutdown. Background helpers alone do not keep the session open; Steam is not placed in a Job Object and its kill-shortcut behavior is unchanged. Update handoffs taking longer than the grace, or games started through unrelated processes, may still require further tracking adjustments.
 

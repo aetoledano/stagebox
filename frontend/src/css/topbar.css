@@ -551,12 +551,17 @@ button,
   mask: url("../assets/images/controller-ico.png") center / 22px 22px no-repeat;
 }
 
-.cmi-count{
+.cmi-count, .sound-percent{
   display: block;
   height: 20px;
-  min-width: 2ch;
+  font-family: inherit;
+  font-weight: inherit;
   font-size: 16px;
   line-height: 20px;
+}
+
+.cmi-count{
+  min-width: 2ch;
   text-align: center;
 }
 
