@@ -163,6 +163,10 @@ func steamLibraryPaths(folders *steamVDF) []string {
 }
 
 func steamGameFromManifest(path, steamExe string) (*GameData, error) {
+	return steamGameFromManifestForUpdate(path, steamExe, false)
+}
+
+func steamGameFromManifestForUpdate(path, steamExe string, allowUpdating bool) (*GameData, error) {
 	vdf, err := readSteamVDF(path)
 	if err != nil {
 		return nil, err
@@ -185,7 +189,12 @@ func steamGameFromManifest(path, steamExe string) (*GameData, error) {
 	}
 	// FullyInstalled is required; uninstalled, missing/corrupt files and active
 	// downloads/uninstalls are excluded. UpdateRequired alone stays playable.
-	const incomplete = 1 | 8 | 16 | 32 | 128 | 256 | 512 | 1024 | 2048 | 262144 | 524288 | 1048576 | 2097152 | 4194304
+	incomplete := uint64(1 | 8 | 16 | 32 | 128 | 256 | 512 | 1024 | 2048 | 262144 | 524288 | 1048576 | 2097152 | 4194304)
+	if allowUpdating {
+		// Only an existing card may wait for an installed game's update.
+		// Discovery still excludes partial installs and active updates.
+		incomplete &^= steamUpdateActivityFlags | 512
+	}
 	if flags&4 == 0 || flags&incomplete != 0 {
 		return nil, nil
 	}
@@ -223,7 +232,11 @@ func steamGameFromManifest(path, steamExe string) (*GameData, error) {
 }
 
 func validateSteamGame(game *GameData) error {
-	current, err := steamGameFromManifest(game.steamManifest, game.Executable)
+	return validateSteamGameForUpdate(game, false)
+}
+
+func validateSteamGameForUpdate(game *GameData, allowUpdating bool) error {
+	current, err := steamGameFromManifestForUpdate(game.steamManifest, game.Executable, allowUpdating)
 	if err != nil {
 		return err
 	}

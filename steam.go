@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"launcher/internal/games"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -109,7 +111,55 @@ func (a *App) prepareSteamCard(game *games.GameData) (*games.GameData, error) {
 	runtime.EventsEmit(a.ctx, "game:launch-status", map[string]any{"id": prepared.ID.String(), "name": prepared.Name,
 		"stage": stage, "message": message, "progress": -1})
 	runtime.EventsEmit(a.ctx, "game:update-status", map[string]any{"id": prepared.ID.String(), "needsUpdate": prepared.SteamNeedsUpdate})
+	for prepared.SteamNeedsUpdate {
+		if err := a.waitForSteamCardUpdate(prepared); err != nil {
+			if err != context.Canceled {
+				if uiErr := games.BackgroundSteamClient(a.ctx, prepared.Executable); uiErr != nil {
+					lgx.Warnf("Steam UI cleanup after update wait failed: %v", uiErr)
+				}
+				a.focusAfterSteamSession()
+			}
+			return nil, err
+		}
+		// Re-read manual overrides and validate the finished installation.
+		prepared, err = games.PrepareSteamGame(prepared)
+		if err != nil {
+			return nil, err
+		}
+	}
 	return prepared, nil
+}
+
+func (a *App) waitForSteamCardUpdate(game *games.GameData) error {
+	ctx, cancel := context.WithCancel(a.ctx)
+	defer cancel()
+	a.gameSessionMu.Lock()
+	a.steamUpdateWaitID, a.steamUpdateCancel = game.ID, cancel
+	a.gameSessionMu.Unlock()
+	err := games.WaitForSteamUpdate(ctx, game, func(status games.SteamLaunchStatus) {
+		runtime.EventsEmit(a.ctx, "game:launch-status", map[string]any{"id": game.ID.String(), "name": game.Name,
+			"stage": status.Stage, "message": status.Message, "progress": status.Progress, "canLeaveUpdate": status.CanLeaveUpdate})
+		runtime.EventsEmit(a.ctx, "game:update-status", map[string]any{"id": game.ID.String(), "needsUpdate": status.NeedsUpdate})
+	})
+	// Serialize accepting Back with committing the update-to-launch handoff.
+	a.gameSessionMu.Lock()
+	if err == nil {
+		err = ctx.Err()
+	}
+	a.steamUpdateWaitID, a.steamUpdateCancel = uuid.Nil, nil
+	a.gameSessionMu.Unlock()
+	return err
+}
+
+// LeaveSteamUpdate releases only StageBox's wait, never Steam's download.
+func (a *App) LeaveSteamUpdate(id uuid.UUID) error {
+	a.gameSessionMu.Lock()
+	defer a.gameSessionMu.Unlock()
+	if id != a.steamUpdateWaitID || a.steamUpdateCancel == nil {
+		return fmt.Errorf("This game is no longer waiting for an update")
+	}
+	a.steamUpdateCancel()
+	return nil
 }
 
 func (a *App) SteamUpdateStates() map[string]bool {

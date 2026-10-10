@@ -1,10 +1,12 @@
 import "../css/launchFeedback.css";
 import { EventsEmit, EventsOn } from "/wailsjs/runtime";
+import { LeaveSteamUpdate } from "/wailsjs/go/main/App.js";
 import { closeMenu } from "./topbarMenu.js";
 
 let overlay, heading, message, progress, close, artwork, eyebrow, indeterminate;
 let errorOpen = false, pendingError = null, activeID = "", ready = false;
 let restoreFocus = null;
+let canLeaveUpdate = false, leavingUpdate = false;
 let getPresentation = () => null, artworkSource = "";
 const isOpen = () => overlay && !overlay.hidden;
 
@@ -21,6 +23,8 @@ function hide() {
   if (!overlay) return;
   overlay.hidden = true;
   errorOpen = false;
+  canLeaveUpdate = false;
+  leavingUpdate = false;
 }
 
 function showError(payload) {
@@ -28,6 +32,8 @@ function showError(payload) {
   setArtwork(payload?.id || activeID);
   activeID = "";
   errorOpen = true;
+  canLeaveUpdate = false;
+  leavingUpdate = false;
   heading.textContent = payload?.name || "Unable to launch game";
   message.textContent = payload?.error || "Unable to launch the game. Please try again.";
   progress.hidden = true;
@@ -35,6 +41,9 @@ function showError(payload) {
   eyebrow.textContent = "Launch interrupted";
   overlay.classList.add("launch-feedback-error");
   close.hidden = false;
+  close.disabled = false;
+  close.textContent = "OK";
+  overlay.querySelector(".launch-feedback-update-hint").hidden = true;
   overlay.hidden = false;
   close.focus({ preventScroll: true });
 }
@@ -44,9 +53,33 @@ function dismiss() {
   restoreFocus?.();
 }
 
+async function leaveUpdate() {
+  if (!canLeaveUpdate || leavingUpdate) return;
+  const id = activeID;
+  leavingUpdate = true;
+  close.disabled = true;
+  close.textContent = "Returning…";
+  try {
+    await LeaveSteamUpdate(id);
+    // Go clears the panel and returns focus through the normal acknowledgement.
+  } catch (error) {
+    if (id !== activeID || ready) return;
+    leavingUpdate = false;
+    canLeaveUpdate = false;
+    close.hidden = true;
+    message.textContent = String(error);
+    overlay.querySelector(".launch-feedback-update-hint").hidden = true;
+  }
+}
+
 export function handleLaunchFeedbackNav() { return isOpen(); }
 export function handleLaunchFeedbackPress(name) {
-  if (!isOpen() || name === "KILL") return false;
+  if (!isOpen()) return false;
+  if (canLeaveUpdate && ["A", "B", "START", "KILL"].includes(name)) {
+    leaveUpdate();
+    return true;
+  }
+  if (name === "KILL") return false;
   if (errorOpen && ["A", "B", "START"].includes(name)) dismiss();
   return true;
 }
@@ -82,6 +115,7 @@ export function initLaunchFeedback(onDismiss, resolvePresentation = () => null) 
       <div class="launch-feedback-indeterminate" aria-hidden="true"><span></span></div>
       <progress class="launch-feedback-progress" max="100" aria-label="Game update progress" hidden></progress>
       <button type="button" class="btn gp-focus" hidden>OK</button>
+      <p class="launch-feedback-update-hint" hidden>Keep downloading while you play something else. A / B · Enter / Esc</p>
     </div>
     <div class="launch-feedback-edge" aria-hidden="true"></div>
   </div>`;
@@ -95,12 +129,13 @@ export function initLaunchFeedback(onDismiss, resolvePresentation = () => null) 
   indeterminate = overlay.querySelector(".launch-feedback-indeterminate");
   // Missing artwork keeps the CSS landscape behind the game title.
   artwork.addEventListener("error", () => { artwork.hidden = true; });
-  close.addEventListener("click", dismiss);
+  close.addEventListener("click", () => { if (errorOpen) dismiss(); else leaveUpdate(); });
   window.addEventListener("keydown", (event) => {
     if (!isOpen()) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     if (errorOpen && ["Enter", "Escape", " "].includes(event.key)) dismiss();
+    else if (canLeaveUpdate && ["Enter", "Escape", " "].includes(event.key)) leaveUpdate();
   }, true);
 
   EventsOn("game:launch-begin", ({ id }) => {
@@ -125,8 +160,14 @@ export function initLaunchFeedback(onDismiss, resolvePresentation = () => null) 
     progress.hidden = !hasProgress;
     indeterminate.hidden = hasProgress;
     if (hasProgress) progress.value = Math.min(100, value);
-    close.hidden = true;
+    const previouslyCanLeave = canLeaveUpdate;
+    canLeaveUpdate = payload.canLeaveUpdate === true;
+    close.hidden = !canLeaveUpdate;
+    close.disabled = leavingUpdate;
+    close.textContent = leavingUpdate ? "Returning…" : "Back to launcher";
+    overlay.querySelector(".launch-feedback-update-hint").hidden = !canLeaveUpdate;
     overlay.hidden = false;
+    if (canLeaveUpdate && !previouslyCanLeave) close.focus({ preventScroll: true });
   });
   EventsOn("game:window-ready", ({ id, ack }) => {
     if (id !== activeID) return;

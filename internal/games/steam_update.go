@@ -37,10 +37,11 @@ func SteamUpdateNeeded(game *GameData) (bool, error) {
 }
 
 type SteamLaunchStatus struct {
-	Stage       string `json:"stage"`
-	Message     string `json:"message"`
-	Progress    int    `json:"progress"` // -1 when Steam provides no byte totals.
-	NeedsUpdate bool   `json:"needsUpdate"`
+	Stage          string `json:"stage"`
+	Message        string `json:"message"`
+	Progress       int    `json:"progress"` // Current phase percentage; -1 when no measurable phase is reported.
+	NeedsUpdate    bool   `json:"needsUpdate"`
+	CanLeaveUpdate bool   `json:"canLeaveUpdate"`
 }
 
 func (s steamGameState) launchStatus() SteamLaunchStatus {
@@ -55,9 +56,23 @@ func (s steamGameState) launchStatus() SteamLaunchStatus {
 	} else if s.flags&(131072|262144|524288|2097152|4194304) != 0 {
 		status.Message = "Steam is preparing or installing the update…"
 		status.Progress = steamByteProgress(s.staged, s.stageTotal)
-	} else if s.flags&steamUpdateActivityFlags != 0 {
+	} else if s.flags&1048576 != 0 {
 		status.Message = "Steam is downloading the update…"
 		status.Progress = steamByteProgress(s.downloaded, s.downloadTotal)
+	} else if s.flags&(256|1024) != 0 {
+		// UpdateRunning/UpdateStarted also cover work before any bytes arrive.
+		// Some manifests expose only these generic flags during a transfer;
+		// show reported partial bytes without claiming a specific active phase.
+		status.Message = "Steam is preparing the update…"
+		if s.downloaded > 0 && s.downloaded < s.downloadTotal {
+			status.Message = "Steam update download progress…"
+			status.Progress = steamByteProgress(s.downloaded, s.downloadTotal)
+		} else if s.downloadTotal > 0 && s.downloaded >= s.downloadTotal && s.staged > 0 && s.staged < s.stageTotal {
+			// Generic flags can persist into staging too. Completed download
+			// bytes do not describe installation; expose its partial snapshot.
+			status.Message = "Steam update installation progress…"
+			status.Progress = steamByteProgress(s.staged, s.stageTotal)
+		}
 	}
 	return status
 }

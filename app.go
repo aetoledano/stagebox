@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"launcher/internal/games"
 	"launcher/internal/platform/audio"
 	"launcher/internal/platform/bluetooth"
@@ -31,6 +32,8 @@ type App struct {
 	gamesMu            sync.RWMutex
 	gameSessionMu      sync.Mutex
 	gameSessionActive  bool
+	steamUpdateWaitID  uuid.UUID
+	steamUpdateCancel  context.CancelFunc
 	pairingMu          sync.Mutex
 	pairingActive      bool
 	thumbnailDir       string
@@ -268,7 +271,16 @@ func (a *App) Launch(id uuid.UUID) {
 	if game.SteamAppID != 0 {
 		prepared, err := a.prepareSteamCard(game)
 		if err != nil {
-			a.endGameSession()
+			defer a.endGameSession()
+			if errors.Is(err, context.Canceled) && a.ctx.Err() == nil {
+				if uiErr := games.BackgroundSteamClient(a.ctx, game.Executable); uiErr != nil {
+					lgx.Warnf("Steam UI cleanup after leaving update failed: %v", uiErr)
+				}
+				a.endGameLaunchFeedback(game.ID.String(), game.Name, true)
+				a.bringBack()
+				a.focusAfterSteamSession()
+				return
+			}
 			lgx.Warnf("Steam card launch blocked name=%q: %v", game.Name, err)
 			runtime.EventsEmit(a.ctx, "game:launch-blocked", map[string]any{"id": game.ID.String(), "name": game.Name, "error": err.Error()})
 			return

@@ -50,6 +50,10 @@ export function Launch(arg1) {
   return window['go']['main']['App']['Launch'](arg1);
 }
 
+export function LeaveSteamUpdate(arg1) {
+  return window['go']['main']['App']['LeaveSteamUpdate'](arg1);
+}
+
 export function LoadGames() {
   return window['go']['main']['App']['LoadGames']();
 }

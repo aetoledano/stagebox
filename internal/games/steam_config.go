@@ -164,7 +164,7 @@ func applySteamConfig(game *GameData) error {
 
 // PrepareSteamGame re-reads manual edits without mutating the shared card.
 func PrepareSteamGame(game *GameData) (*GameData, error) {
-	if err := validateSteamGame(game); err != nil {
+	if err := validateSteamGameForUpdate(game, true); err != nil {
 		return nil, err
 	}
 	prepared := *game

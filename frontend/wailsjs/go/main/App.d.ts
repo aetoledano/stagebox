@@ -29,6 +29,8 @@ export function KillRunning():Promise<void>;
 
 export function Launch(arg1:uuid.UUID):Promise<void>;
 
+export function LeaveSteamUpdate(arg1:uuid.UUID):Promise<void>;
+
 export function LoadGames():Promise<Record<uuid.UUID, games.GameData>>;
 
 export function OpenBluetoothPairing():Promise<void>;

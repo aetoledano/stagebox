@@ -177,6 +177,8 @@
   background: #174736;
 }
 .launch-feedback button:focus-visible, .launch-feedback button.gp-focus{ outline: 3px solid var(--accent); outline-offset: 3px; }
+.launch-feedback .launch-feedback-update-hint{ margin-top: 18px; font-size: 14px; color: #aebec2; }
+.launch-feedback button:disabled{ opacity: .65; }
 .launch-feedback-error .launch-feedback-dot{ display: none; }
 @keyframes launch-feedback-sweep{ from{ transform: translateX(-110%); } to{ transform: translateX(400%); } }
 @keyframes launch-feedback-breathe{ 50%{ opacity: .45; } }

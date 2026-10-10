@@ -74,3 +74,68 @@ func TestSteamGameEmptyExitAndLateHandoff(t *testing.T) {
 		t.Fatal("all exited native handles still used the long window handoff delay")
 	}
 }
+
+func TestSteamGameUpdateDoesNotUseGameWindowTimeout(t *testing.T) {
+	start := time.Unix(1000, 0)
+	for _, update := range []steamGameState{
+		{flags: 2}, // Preflight update evidence while Steam rewrites the manifest.
+		{flags: 6}, // Only UpdateRequired: Steam has not published counters yet.
+		{flags: 2 | 1048576, downloaded: 25, downloadTotal: 100},
+		{flags: 2 | 524288}, // Preallocation can keep counters unchanged.
+		{flags: 2 | 2097152, staged: 50, stageTotal: 100},
+	} {
+		state := steamGameSessionState{started: start}
+		state.observeUpdate(start, update)
+		// Re-reading the same manifest must not consume the game-window budget
+		// or continually renew a genuinely stalled update's separate budget.
+		state.observeUpdate(start.Add(10*time.Minute), update)
+		if finished, _ := state.finished(start.Add(10*time.Minute), false, 0); finished {
+			t.Fatalf("update flags=%d hit the two-minute game timeout", update.flags)
+		}
+		if finished, neverStarted := state.finished(start.Add(steamGameUpdateGrace), false, 0); !finished || !neverStarted {
+			t.Fatalf("unchanged update flags=%d did not have a bounded wait", update.flags)
+		}
+	}
+}
+
+func TestSteamGameUpdateProgressAndCompletionRenewTheWait(t *testing.T) {
+	start := time.Unix(1000, 0)
+	state := steamGameSessionState{started: start}
+	update := steamGameState{flags: 2 | 1048576, downloadTotal: 100}
+	state.observeUpdate(start, update)
+	progressAt := start.Add(steamGameUpdateGrace - time.Minute)
+	update.downloaded = 50
+	state.observeUpdate(progressAt, update)
+	if finished, _ := state.finished(start.Add(steamGameUpdateGrace), false, 0); finished {
+		t.Fatal("new download progress did not renew the update wait")
+	}
+	completedAt := progressAt.Add(20 * time.Minute)
+	state.observeUpdate(completedAt, steamGameState{flags: 4})
+	if finished, _ := state.finished(completedAt.Add(steamGameStartGrace-time.Millisecond), false, 1); finished {
+		t.Fatal("update completion did not give the game a fresh startup budget")
+	}
+	if finished, neverStarted := state.finished(completedAt.Add(steamGameStartGrace), false, 0); !finished || !neverStarted {
+		t.Fatal("missing game after a completed update did not time out")
+	}
+}
+
+func TestSteamGamePausedUpdateAndMissingManifestDoNotRenewWait(t *testing.T) {
+	start := time.Unix(1000, 0)
+	state := steamGameSessionState{started: start}
+	state.observeUpdate(start, steamGameState{flags: 6})
+	// A missing/unreadable manifest invokes no observeUpdate call. Its last
+	// known update budget must still expire instead of being renewed blindly.
+	if finished, _ := state.finished(start.Add(steamGameUpdateGrace), false, 0); !finished {
+		t.Fatal("missing manifest made update wait unbounded")
+	}
+	pausedAt := start.Add(time.Minute)
+	paused := steamGameSessionState{started: start}
+	paused.observeUpdate(start, steamGameState{flags: 6})
+	paused.observeUpdate(pausedAt, steamGameState{flags: 2 | 512})
+	if paused.updateWait {
+		t.Fatal("paused update retained the long update budget")
+	}
+	if finished, _ := paused.finished(pausedAt.Add(steamGameStartGrace), false, 0); !finished {
+		t.Fatal("paused update did not have a bounded error")
+	}
+}

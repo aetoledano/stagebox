@@ -25,6 +25,7 @@ func steamGameCrashHelper(path string) bool {
 
 const (
 	steamGameStartGrace   = 2 * time.Minute
+	steamGameUpdateGrace  = 30 * time.Minute
 	steamGameHandoffGrace = 10 * time.Second
 	steamGameExitGrace    = 750 * time.Millisecond
 )
@@ -34,6 +35,26 @@ type steamGameSessionState struct {
 	quietSince time.Time
 	emptySince time.Time
 	sawWindow  bool
+	updateWait bool
+	updateAt   time.Time
+	lastUpdate steamGameState
+}
+
+// Manifest byte counters can stay unchanged during queueing, allocation and
+// installation. Give a known update its own inactivity budget instead of
+// interpreting it as a game that failed to open. Missing manifest samples do
+// not reset either budget. Completion/pause starts a fresh game-window budget.
+func (s *steamGameSessionState) observeUpdate(now time.Time, update steamGameState) {
+	waiting := update.needsUpdate() && update.flags&512 == 0
+	if waiting {
+		if !s.updateWait || update != s.lastUpdate {
+			s.updateAt = now
+		}
+	} else if s.updateWait {
+		s.started = now
+	}
+	s.updateWait = waiting
+	s.lastUpdate = update
 }
 
 func (s *steamGameSessionState) finished(now time.Time, visible bool, running int) (finished, neverStarted bool) {
@@ -44,6 +65,9 @@ func (s *steamGameSessionState) finished(now time.Time, visible bool, running in
 		return false, false
 	}
 	if !s.sawWindow {
+		if s.updateWait {
+			return now.Sub(s.updateAt) >= steamGameUpdateGrace, true
+		}
 		return now.Sub(s.started) >= steamGameStartGrace, true
 	}
 	if s.quietSince.IsZero() {

@@ -116,13 +116,20 @@ func (p *steamGameProcess) Wait() (result error) {
 		p.logClientSnapshot("game-ended")
 	}()
 	state := steamGameSessionState{started: time.Now()}
+	if p.game.SteamNeedsUpdate {
+		// Preflight already confirmed an update. Steam can rewrite/replace its
+		// manifest during startup; retain that evidence until a readable sample
+		// reports completion, rather than falling back to the game timeout.
+		state.observeUpdate(state.started, steamGameState{flags: 2})
+	}
 	var failures int
 	var previous []uint32
 	var previousVisible bool
 	var requestErr error
 	requestExit := p.requestExit
-	var lastUpdate steamGameState
 	var lastStatus SteamLaunchStatus
+	var lastUpdateLog time.Time
+	var manifestError string
 	for {
 		select {
 		case requestErr = <-requestExit:
@@ -165,17 +172,30 @@ func (p *steamGameProcess) Wait() (result error) {
 		failures = 0
 		if !state.sawWindow && !visible {
 			if update, err := readSteamGameState(p.game); err == nil {
-				// Keep waiting while download/install work makes progress. A
-				// stalled/paused update still gets the normal startup timeout.
-				if update.flags&steamUpdateActivityFlags != 0 && update.flags&512 == 0 && update != lastUpdate {
-					state.started = time.Now()
+				if manifestError != "" {
+					lgx.Infof("Steam game update manifest readable again appID=%d", p.game.SteamAppID)
+					manifestError = ""
 				}
-				lastUpdate = update
+				now := time.Now()
+				state.observeUpdate(now, update)
 				status := update.launchStatus()
-				if status != lastStatus && p.onStatus != nil {
-					p.onStatus(status)
+				if status != lastStatus || (state.updateWait && now.Sub(lastUpdateLog) >= 30*time.Second) {
+					var updateIdle time.Duration
+					if state.updateWait {
+						updateIdle = now.Sub(state.updateAt).Round(time.Second)
+					}
+					lgx.Infof("Steam game startup status appID=%d stage=%s flags=%d downloaded=%d/%d staged=%d/%d updateWait=%v updateIdle=%s message=%q", p.game.SteamAppID, status.Stage, update.flags, update.downloaded, update.downloadTotal, update.staged, update.stageTotal, state.updateWait, updateIdle, status.Message)
+					lastUpdateLog = now
+				}
+				if status != lastStatus {
+					if p.onStatus != nil {
+						p.onStatus(status)
+					}
 					lastStatus = status
 				}
+			} else if err.Error() != manifestError {
+				manifestError = err.Error()
+				lgx.Warnf("Steam game update manifest unavailable appID=%d updateWait=%v err=%v; retaining last known startup state", p.game.SteamAppID, state.updateWait, err)
 			}
 		}
 		if !slices.Equal(previous, pids) || previousVisible != visible {
@@ -188,6 +208,12 @@ func (p *steamGameProcess) Wait() (result error) {
 		}
 		if finished, neverStarted := state.finished(time.Now(), visible, len(gamePIDs)); finished {
 			if neverStarted {
+				if state.updateWait {
+					return fmt.Errorf("Steam has not reported update progress for %s; check its download queue or update dialogs, then retry", steamGameUpdateGrace)
+				}
+				if state.lastUpdate.flags&512 != 0 {
+					return errors.New("Steam update is paused; resume the download in Steam, then retry")
+				}
 				return fmt.Errorf("Steam game did not open within %s (activation error: %v); check Steam sign-in or launch dialogs", steamGameStartGrace, requestErr)
 			}
 			if wait := waitAfterExitDuration(p.game); wait > 0 {
