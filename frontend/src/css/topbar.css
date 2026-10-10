@@ -8,7 +8,7 @@
   right: 0;
   height: var(--topbar-h);
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   /* indicators | title | actions */
   align-items: center;
   gap: 10px;
@@ -58,21 +58,25 @@
 
 /* Centered title */
 .topbar .title {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
   text-align: center;
   font-weight: 600;
-  /* center inside middle column */
+  /* Equal side columns keep the text at the window's center. */
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-size: 14px;
   letter-spacing: .4px;
   opacity: .95;
   pointer-events: none;
   /* don’t block drags/clicks */
+}
+
+.topbar .title .load-status {
+  position: absolute;
+  left: calc(100% + 7px);
 }
 
 .load-status{
@@ -115,6 +119,7 @@
 /* Right actions (buttons) */
 .topbar .actions {
   display: flex;
+  justify-self: end;
   gap: 8px;
   -webkit-app-region: no-drag;
   /* buttons must be clickable */
@@ -563,6 +568,7 @@ button,
 .cmi-count{
   min-width: 2ch;
   text-align: center;
+  font-weight: 700;
 }
 
 .cmi.active {

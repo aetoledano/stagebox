@@ -1,5 +1,10 @@
 .sound-indicator { gap: 4px; font-variant-numeric: tabular-nums; }
-.sound-icon { width: 20px; height: 20px; font-size: 18px; line-height: 20px; text-align: center; }
+/* Keep the full alignment cell, but optically match the BT/Wi-Fi glyphs. */
+.sound-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; flex: 0 0 20px;
+  font-size: 16px; font-weight: 400; line-height: 20px; text-align: center;
+}
 .sound-percent { width: 4ch; text-align: right; }
 .sound-indicator.muted, .sound-indicator.unavailable { color: #a3a3a3; }
 .sound-overlay {

@@ -94,8 +94,12 @@ func waitForProcessTreeExit(rootPID int, extraWait time.Duration) {
 }
 
 func processTreeHasVisibleWindow(processes map[uint32]struct{}) bool {
+	return processTreeVisibleWindowPID(processes) != 0
+}
+
+func processTreeVisibleWindowPID(processes map[uint32]struct{}) uint32 {
 	if len(processes) == 0 {
-		return false
+		return 0
 	}
 	search := &visibleWindowSearch{pids: processes}
 	procEnumWindows.Call(windows.NewCallback(func(hwnd uintptr, lparam uintptr) uintptr {
@@ -107,17 +111,17 @@ func processTreeHasVisibleWindow(processes map[uint32]struct{}) bool {
 		}
 		visible, _, _ := procIsWindowVisible.Call(hwnd)
 		if visible != 0 {
-			s.found = true
+			s.pid = windowPID
 			return 0
 		}
 		return 1
 	}), uintptr(unsafe.Pointer(search)))
-	return search.found
+	return search.pid
 }
 
 type visibleWindowSearch struct {
-	pids  map[uint32]struct{}
-	found bool
+	pids map[uint32]struct{}
+	pid  uint32
 }
 
 func processIDList(processes map[uint32]struct{}) []uint32 {

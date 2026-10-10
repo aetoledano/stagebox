@@ -94,6 +94,10 @@ export function Shutdown() {
   return window['go']['main']['App']['Shutdown']();
 }
 
+export function SteamUpdateStates() {
+  return window['go']['main']['App']['SteamUpdateStates']();
+}
+
 export function ToggleAudioMute() {
   return window['go']['main']['App']['ToggleAudioMute']();
 }

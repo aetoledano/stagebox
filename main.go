@@ -21,7 +21,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed assets/loading.jpg
+//go:embed assets/loading-space.png
 var runtimeAssets embed.FS
 
 var appVersion = "0.25"
@@ -42,6 +42,7 @@ func main() {
 	}
 	lgx.SetLevel("debug")
 	lgx.Infof("launcher starting version=%s pid=%d", appVersion, os.Getpid())
+	lgx.Infof("logging level=%s; config.debug controls exit behavior, not logging verbosity", lgx.GetLevel())
 	if configErr != nil {
 		lgx.Errorf("failed to load config.json: %v", configErr)
 	}
@@ -56,8 +57,8 @@ func main() {
 		lgx.Debug("display already at max resolution before Wails start")
 	}
 
-	loadingWallpaperPath := "loading.jpg"
-	if path, err := cacheassets.ExtractEmbeddedFile(runtimeAssets, "assets/loading.jpg", "loading.jpg"); err != nil {
+	loadingWallpaperPath := "loading-space.png"
+	if path, err := cacheassets.ExtractEmbeddedFile(runtimeAssets, "assets/loading-space.png", "loading-space.png"); err != nil {
 		lgx.Errorf("failed to extract embedded loading wallpaper: %v", err)
 	} else {
 		loadingWallpaperPath = path

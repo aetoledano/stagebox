@@ -1,0 +1,180 @@
+<style>
+  #stagebox-wallpaper-concepts { color-scheme: dark; }
+  #stagebox-wallpaper-concepts .sb-wallpaper {
+    --sb-glow: .8;
+    position: relative; isolation: isolate; overflow: hidden;
+    width: 100%; aspect-ratio: 16 / 9; min-height: 270px;
+    background: #040b0b; color: #f0f7f4;
+    font-family: "Segoe UI", system-ui, sans-serif;
+  }
+  #stagebox-wallpaper-concepts .sb-wallpaper *,
+  #stagebox-wallpaper-concepts .sb-wallpaper *::before,
+  #stagebox-wallpaper-concepts .sb-wallpaper *::after { box-sizing: border-box; }
+  #stagebox-wallpaper-concepts .sb-brand { position: absolute; z-index: 3; }
+  #stagebox-wallpaper-concepts .sb-name {
+    margin: 0; font-size: clamp(24px, 4.3vw, 48px); line-height: 1.1;
+    font-weight: 500; letter-spacing: .2em;
+  }
+  #stagebox-wallpaper-concepts .sb-caption {
+    margin-top: 14px; font-size: 11px; line-height: 1.6;
+    letter-spacing: .24em; color: #9cbcb0;
+  }
+  #stagebox-wallpaper-concepts .sb-corner {
+    position: absolute; left: 6%; bottom: 7%; z-index: 3;
+    color: #829a91; font-size: 11px; letter-spacing: .18em;
+  }
+  #stagebox-wallpaper-concepts .sb-vignette {
+    position: absolute; inset: 0; z-index: 2; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 45%, transparent 22%, #010505a6 100%);
+  }
+  #stagebox-wallpaper-concepts .sb-stars {
+    position: absolute; inset: 0; opacity: .32;
+    background:
+      radial-gradient(circle at 15% 16%, #e3fff1 0 1px, transparent 1.7px),
+      radial-gradient(circle at 28% 27%, #d0ffe5 0 .6px, transparent 1.5px),
+      radial-gradient(circle at 69% 12%, #d0ffe5 0 .6px, transparent 1.5px),
+      radial-gradient(circle at 83% 33%, #e3fff1 0 1px, transparent 1.7px),
+      radial-gradient(circle at 56% 20%, #d0ffe5 0 .6px, transparent 1.5px),
+      radial-gradient(circle at 37% 8%, #d0ffe5 0 .6px, transparent 1.5px),
+      radial-gradient(circle at 92% 19%, #d0ffe5 0 .6px, transparent 1.5px);
+  }
+
+  /* Horizon: a quiet sky, emerald atmosphere and a receding console floor. */
+  #stagebox-wallpaper-concepts .sb-horizon {
+    background: radial-gradient(ellipse at 50% 78%, #0b2921 0, #06100e 43%, #030809 79%);
+  }
+  #stagebox-wallpaper-concepts .sb-horizon .sb-brand {
+    left: 10%; right: 10%; top: 35%; text-align: center;
+  }
+  #stagebox-wallpaper-concepts .sb-horizon .sb-caption { color: #adc2b8; }
+  #stagebox-wallpaper-concepts .sb-atmosphere {
+    position: absolute; left: -10%; right: -10%; top: 58%; height: 22%;
+    opacity: var(--sb-glow); filter: blur(20px);
+    background: radial-gradient(ellipse at 50% 80%, #48ffb14d 0, #1ae5a024 38%, transparent 68%);
+  }
+  #stagebox-wallpaper-concepts .sb-horizon-line {
+    position: absolute; left: 0; right: 0; top: 75%; height: 1px;
+    opacity: var(--sb-glow);
+    background: linear-gradient(90deg, transparent, #3ad69c66 22%, #c2ffe8 50%, #3ad69c66 78%, transparent);
+    box-shadow: 0 0 15px 2px #37e9a055;
+  }
+  #stagebox-wallpaper-concepts .sb-floor {
+    position: absolute; left: -35%; right: -35%; top: 75%; bottom: -55%;
+    transform: perspective(180px) rotateX(49deg); transform-origin: top;
+    background-image: linear-gradient(#3be8a018 1px, transparent 1px), linear-gradient(90deg, #3be8a018 1px, transparent 1px);
+    background-size: 52px 33px;
+    mask-image: linear-gradient(transparent, #0007 30%, transparent 80%);
+  }
+  #stagebox-wallpaper-concepts .sb-horizon .sb-corner { letter-spacing: .26em; }
+
+  /* Aurora: asymmetric ribbons of light, with a clear centered brand. */
+  #stagebox-wallpaper-concepts .sb-aurora {
+    background: radial-gradient(ellipse at 15% 95%, #0d2c30, transparent 60%), #040b11;
+  }
+  #stagebox-wallpaper-concepts .sb-aurora .sb-brand {
+    left: 10%; right: 10%; top: 43%; text-align: center;
+  }
+  #stagebox-wallpaper-concepts .sb-ribbon {
+    position: absolute; width: 115%; height: 66%; left: -30%; top: -18%;
+    border-radius: 50%; transform: rotate(-28deg);
+    border-bottom: 16px solid #3ff2ad80; filter: blur(17px);
+    box-shadow: 0 18px 50px #34d6aa30, inset 0 -16px 32px #39ffd323;
+    opacity: var(--sb-glow);
+  }
+  #stagebox-wallpaper-concepts .sb-ribbon.secondary {
+    left: 18%; top: 20%; width: 115%; height: 75%;
+    transform: rotate(-32deg); border-bottom: 20px solid #25b6c24d;
+    filter: blur(24px); box-shadow: 0 17px 45px #27c3c624;
+  }
+  #stagebox-wallpaper-concepts .sb-aurora-edge {
+    position: absolute; left: -20%; top: 13%; width: 105%; height: 32%;
+    border-bottom: 1px solid #9effd750; border-radius: 50%; transform: rotate(-28deg);
+    opacity: var(--sb-glow);
+  }
+
+  /* Orbit: architectural concentric arcs with an offset title. */
+  #stagebox-wallpaper-concepts .sb-orbit {
+    background: radial-gradient(ellipse at 27% 50%, #0b251c, #06110d 30%, #030909 75%);
+  }
+  #stagebox-wallpaper-concepts .sb-orbit .sb-brand { left: 51%; top: 42%; right: 7%; }
+  #stagebox-wallpaper-concepts .sb-orbit .sb-name {
+    font-size: clamp(24px, 4vw, 44px); letter-spacing: .1em;
+  }
+  #stagebox-wallpaper-concepts .sb-orbits {
+    position: absolute; left: -7%; top: 12%; width: 57%; aspect-ratio: 1;
+    border: 1px solid #7feabb22; border-radius: 50%; transform: rotate(-35deg);
+    opacity: var(--sb-glow);
+  }
+  #stagebox-wallpaper-concepts .sb-orbits::before {
+    content: ""; position: absolute; inset: 9%; border-radius: 50%;
+    border: 1px solid #83ffca40; border-top: 2px solid #b6ffe2;
+    box-shadow: 0 -14px 48px -14px #53ffdbaa, inset 0 14px 40px -24px #53ffdbaa;
+  }
+  #stagebox-wallpaper-concepts .sb-orbits::after {
+    content: ""; position: absolute; inset: 23%; border-radius: 50%; border: 1px solid #8fffc423;
+    background: radial-gradient(circle at 40% 35%, #3ae69e13, transparent 65%);
+  }
+  #stagebox-wallpaper-concepts .sb-orbit-rule {
+    position: absolute; left: 52%; right: 8%; top: 35%; height: 1px;
+    background: linear-gradient(90deg, #83eebd70, transparent);
+  }
+  @media (max-width: 480px) {
+    #stagebox-wallpaper-concepts .sb-wallpaper { min-height: 270px; }
+    #stagebox-wallpaper-concepts .sb-name { font-size: 26px; }
+    #stagebox-wallpaper-concepts .sb-caption { letter-spacing: .17em; }
+    #stagebox-wallpaper-concepts .sb-orbit .sb-brand { left: 9%; right: 9%; top: 46%; text-align: center; }
+    #stagebox-wallpaper-concepts .sb-orbits { width: 80%; left: -30%; top: -3%; }
+    #stagebox-wallpaper-concepts .sb-orbit-rule { left: 25%; right: 25%; top: 39%; }
+  }
+</style>
+<div id="stagebox-wallpaper-concepts" class="viz-carousel" aria-label="StageBox full-screen background designs">
+  <section data-variant="Horizon" aria-label="Horizon background">
+    <div class="sb-wallpaper sb-horizon" role="img" aria-label="Horizon: dark emerald sky, a luminous horizon, a subtle perspective grid and centered StageBox branding">
+      <div class="sb-stars" aria-hidden="true"></div>
+      <div class="sb-atmosphere" aria-hidden="true"></div>
+      <div class="sb-floor" aria-hidden="true"></div>
+      <div class="sb-horizon-line" aria-hidden="true"></div>
+      <div class="sb-vignette" aria-hidden="true"></div>
+      <div class="sb-brand"><div class="sb-name">STAGEBOX</div><div class="sb-caption">PLAY STARTS HERE</div></div>
+      <div class="sb-corner" aria-hidden="true">S T A G E B O X</div>
+    </div>
+  </section>
+  <section data-variant="Aurora" aria-label="Aurora background" hidden>
+    <div class="sb-wallpaper sb-aurora" role="img" aria-label="Aurora: flowing emerald and teal ribbons on a deep midnight background with centered StageBox branding">
+      <div class="sb-ribbon" aria-hidden="true"></div>
+      <div class="sb-ribbon secondary" aria-hidden="true"></div>
+      <div class="sb-aurora-edge" aria-hidden="true"></div>
+      <div class="sb-stars" aria-hidden="true"></div>
+      <div class="sb-vignette" aria-hidden="true"></div>
+      <div class="sb-brand"><div class="sb-name">STAGEBOX</div><div class="sb-caption">PLAY STARTS HERE</div></div>
+      <div class="sb-corner" aria-hidden="true">STAGEBOX</div>
+    </div>
+  </section>
+  <section data-variant="Orbit" aria-label="Orbit background" hidden>
+    <div class="sb-wallpaper sb-orbit" role="img" aria-label="Orbit: sculptural emerald circular arcs on the left and offset StageBox branding on the right">
+      <div class="sb-orbits" aria-hidden="true"></div>
+      <div class="sb-orbit-rule" aria-hidden="true"></div>
+      <div class="sb-vignette" aria-hidden="true"></div>
+      <div class="sb-brand"><div class="sb-name">STAGEBOX</div><div class="sb-caption">PLAY STARTS HERE</div></div>
+      <div class="sb-corner" aria-hidden="true">STAGEBOX</div>
+    </div>
+  </section>
+</div>
+<script>
+  (() => {
+    const root = document.getElementById("stagebox-wallpaper-concepts");
+    if (globalThis.Tweak) {
+      root.querySelectorAll(".sb-wallpaper").forEach((wallpaper) => {
+        const state = { glow: .8, branding: true };
+        const render = () => {
+          wallpaper.style.setProperty("--sb-glow", state.glow);
+          wallpaper.querySelector(".sb-brand").hidden = !state.branding;
+          wallpaper.querySelector(".sb-corner").hidden = !state.branding;
+        };
+        const tweak = new Tweak({ container: wallpaper, onChange: render });
+        tweak.addSlider(state, "glow", { label: "Glow intensity", min: .1, max: 1, step: .05 });
+        tweak.addToggle(state, "branding", { label: "StageBox branding" });
+      });
+    }
+  })();
+</script>

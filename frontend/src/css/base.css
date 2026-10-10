@@ -23,14 +23,14 @@
 
 html, body { font-family: var(--ui-font); }
 
-/* Fullscreen background (kept from your original) */
+/* Space Launch library wallpaper, paired with the native loading fallback. */
 html, body {
   height: 100%;
   margin: 0;
   overflow: hidden;
 }
 body {
-  background: #000 url("../assets/images/background.jpg")
+  background: #000 url("../assets/images/background-space.png")
              center center / cover no-repeat fixed;
 }
 

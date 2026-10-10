@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -18,6 +19,10 @@ const (
 	WARN
 	ERROR
 )
+
+// Rotate at startup rather than overwriting the previous run's diagnostics.
+// A single long-running session can exceed this size until the next startup.
+const startupRotationBytes = 8 << 20
 
 var (
 	level    = INFO
@@ -47,7 +52,14 @@ func Init(enableFileLogs bool, path string, alsoStdout bool) error {
 		return nil
 	}
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if absolute, err := filepath.Abs(path); err == nil {
+		path = absolute
+	}
+	var rotationErr error
+	if info, err := os.Stat(path); err == nil && info.Size() >= startupRotationBytes {
+		rotationErr = os.Rename(path, path+".previous")
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		// fall back to stdout only on error
 		writer = os.Stdout
@@ -64,6 +76,9 @@ func Init(enableFileLogs bool, path string, alsoStdout bool) error {
 	}
 	setOutputsLocked(writer)
 	Infof("logx: initialized → file=%s alsoStdout=%v", path, alsoStdout)
+	if rotationErr != nil {
+		Warnf("logx: startup rotation failed: %v (appending to existing log)", rotationErr)
+	}
 	return nil
 }
 

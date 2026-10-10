@@ -40,6 +40,7 @@ func LauncherHasFocus() bool {
 	return true
 }
 func FocusProcessWindow(pid uint32) bool     { return false }
+func FocusLauncherWindow() bool              { return true }
 func HasVisibleWindowForPID(pid uint32) bool { return false }
 func MoveCursorTo(x int, y int)              {}
 func SendKeyStrokeToPID(pid uint32, key string) bool {

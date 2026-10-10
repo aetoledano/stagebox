@@ -7,11 +7,11 @@ import (
 	lgx "launcher/internal/logx"
 	"launcher/internal/platform/controller"
 	"launcher/internal/platform/cursor"
+	"launcher/internal/platform/network"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -67,17 +67,16 @@ func (a *App) launchSteamSession(steamExe string) {
 		} else {
 			lgx.Info("Steam session ended")
 		}
+		if uiErr := games.BackgroundSteamClient(a.ctx, steamExe); uiErr != nil {
+			lgx.Warnf("Steam UI cleanup before launcher return failed: %v", uiErr)
+		}
 
 		cursor.RestoreSystemCursor()
 		controller.MoveCursorTo(0, 0)
 		cursor.SetCursorHidden(true)
+		a.endGameLaunchFeedback("steam", "Steam", err == nil)
 		a.bringBack()
-
-		runtime.EventsEmit(a.ctx, "game:end", map[string]any{
-			"id":   "steam",
-			"name": "Steam",
-			"ok":   err == nil,
-		})
+		a.focusAfterSteamSession()
 
 		if a.pad != nil {
 			a.pad.Resume()
@@ -87,39 +86,72 @@ func (a *App) launchSteamSession(steamExe string) {
 }
 
 func findSteamExecutable() string {
-	candidates := []string{}
-	add := func(path string) {
-		if path == "" {
-			return
-		}
-		candidates = append(candidates, filepath.Clean(os.ExpandEnv(path)))
-	}
-	addRoot := func(path string) {
-		if path == "" {
-			return
-		}
-		if strings.EqualFold(filepath.Base(path), "steam.exe") {
-			add(path)
-			return
-		}
-		add(filepath.Join(path, "Steam.exe"))
-	}
+	return games.FindSteamExecutable()
+}
 
-	addRoot(os.Getenv("STEAM_PATH"))
-	addRoot(os.Getenv("STEAM_DIR"))
-	if programFilesX86 := os.Getenv("ProgramFiles(x86)"); programFilesX86 != "" {
-		add(filepath.Join(programFilesX86, "Steam", "Steam.exe"))
+func (a *App) prepareSteamCard(game *games.GameData) (*games.GameData, error) {
+	runtime.EventsEmit(a.ctx, "game:launch-status", map[string]any{"id": game.ID.String(), "name": game.Name,
+		"stage": "checking", "message": "Checking internet connection…", "progress": -1})
+	prepared, err := games.PrepareSteamGame(game)
+	if err != nil {
+		return nil, err
 	}
-	if programFiles := os.Getenv("ProgramFiles"); programFiles != "" {
-		add(filepath.Join(programFiles, "Steam", "Steam.exe"))
+	if !network.InternetAvailable(a.ctx) {
+		return nil, fmt.Errorf("An internet connection is required to run this Steam game. Connect to the internet and try again.")
 	}
+	if !controller.LauncherHasFocus() {
+		return nil, fmt.Errorf("Return to StageBox before launching the game.")
+	}
+	stage, message := "starting", "Starting game…"
+	if prepared.SteamNeedsUpdate {
+		stage, message = "updating", "Steam needs to update this game before it starts."
+	}
+	runtime.EventsEmit(a.ctx, "game:launch-status", map[string]any{"id": prepared.ID.String(), "name": prepared.Name,
+		"stage": stage, "message": message, "progress": -1})
+	runtime.EventsEmit(a.ctx, "game:update-status", map[string]any{"id": prepared.ID.String(), "needsUpdate": prepared.SteamNeedsUpdate})
+	return prepared, nil
+}
 
-	for _, candidate := range candidates {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return candidate
+func (a *App) SteamUpdateStates() map[string]bool {
+	a.gamesMu.RLock()
+	steamGames := make([]*games.GameData, 0)
+	for _, game := range a.games {
+		if game.SteamAppID != 0 {
+			steamGames = append(steamGames, game)
 		}
 	}
-	return ""
+	a.gamesMu.RUnlock()
+	states := map[string]bool{}
+	for _, game := range steamGames {
+		if needed, err := games.SteamUpdateNeeded(game); err == nil {
+			states[game.ID.String()] = needed
+		}
+	}
+	return states
+}
+
+func (a *App) focusAfterSteamSession() {
+	deadline := time.Now().Add(2 * time.Second)
+	var focusedSince time.Time
+	for {
+		if controller.LauncherHasFocus() {
+			if focusedSince.IsZero() {
+				focusedSince = time.Now()
+			}
+			if time.Since(focusedSince) >= 400*time.Millisecond {
+				lgx.Info("launcher focus reclaimed after Steam session")
+				return
+			}
+		} else {
+			focusedSince = time.Time{}
+			controller.FocusLauncherWindow()
+		}
+		if time.Now().After(deadline) || a.ctx.Err() != nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	lgx.Warn("launcher is visible but foreground focus could not be reclaimed after Steam session")
 }
 
 func ensureSteamInstaller() (string, error) {

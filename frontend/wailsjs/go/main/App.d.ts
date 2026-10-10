@@ -51,6 +51,8 @@ export function SetSoundSettingsOpen(arg1:boolean):Promise<void>;
 
 export function Shutdown():Promise<void>;
 
+export function SteamUpdateStates():Promise<Record<string, boolean>>;
+
 export function ToggleAudioMute():Promise<audio.Status>;
 
 export function Warn(arg1:any):Promise<void>;

@@ -7,6 +7,8 @@ import (
 )
 
 type GameData struct {
+	SteamAppID           uint32      `json:"steamAppId,omitempty"`
+	SteamNeedsUpdate     bool        `json:"steamNeedsUpdate,omitempty"`
 	ID                   uuid.UUID   `json:"id"`
 	StartsOn             string      `json:"startsOn"`
 	Executable           string      `json:"executable"`
@@ -23,6 +25,9 @@ type GameData struct {
 	WaitAfterExitSeconds float64     `json:"waitAfterExitSeconds"`
 	DelayedKey           *DelayedKey `json:"delayedKey"`
 	KeyMap               *KeyMap     `json:"keyMap"`
+	steamManifest        string
+	steamConfigPath      string
+	steamDefaults        *GameData
 }
 
 type DelayedKey struct {

@@ -14,6 +14,7 @@ import (
 const DefaultLoadWorkers = 8
 
 type LoadOptions struct {
+	SteamExecutable    string
 	ThumbnailDir       string
 	ThumbnailURLPrefix string
 	Workers            int
@@ -27,26 +28,26 @@ func LoadGames(rootPath string) map[uuid.UUID]*GameData {
 }
 
 func LoadGamesWithOptions(rootPath string, opts LoadOptions) map[uuid.UUID]*GameData {
-	rootEntries, err := os.ReadDir(rootPath)
-	if err != nil {
-		lgx.Errorf("error reading game root %q: %v", rootPath, err)
-		if opts.OnError != nil {
-			opts.OnError(rootPath, err)
-		}
-		if opts.OnProgress != nil {
-			opts.OnProgress(0, 0)
-		}
-		return map[uuid.UUID]*GameData{}
-	}
-
-	gameDirs := make([]string, 0, len(rootEntries))
-	for _, e := range rootEntries {
-		if e.IsDir() {
-			gameDirs = append(gameDirs, filepath.Join(rootPath, e.Name()))
+	gameDirs := []string{}
+	if rootPath != "" {
+		rootEntries, err := os.ReadDir(rootPath)
+		if err != nil {
+			lgx.Errorf("error reading game root %q: %v", rootPath, err)
+			if opts.OnError != nil {
+				opts.OnError(rootPath, err)
+			}
+		} else {
+			for _, e := range rootEntries {
+				if e.IsDir() && !strings.EqualFold(e.Name(), "SteamGames") {
+					gameDirs = append(gameDirs, filepath.Join(rootPath, e.Name()))
+				}
+			}
 		}
 	}
-
-	total := len(gameDirs)
+	steamLibrary := discoverSteamLibrary(opts.SteamExecutable, opts.OnError)
+	syncSteamConfigs(rootPath, steamLibrary, opts.OnError)
+	steamGames := steamLibrary.games
+	total := len(gameDirs) + len(steamGames)
 	if opts.OnProgress != nil {
 		opts.OnProgress(0, total)
 	}
@@ -63,25 +64,37 @@ func LoadGamesWithOptions(rootPath string, opts LoadOptions) map[uuid.UUID]*Game
 	var gamesMu sync.Mutex
 	var progressMu sync.Mutex
 	loaded := 0
-	jobs := make(chan string)
+	type loadJob struct {
+		path  string
+		steam *GameData
+	}
+	jobs := make(chan loadJob)
 	var wg sync.WaitGroup
 
 	reportDone := func() {
 		progressMu.Lock()
 		loaded++
 		cur := loaded
-		progressMu.Unlock()
 		if opts.OnProgress != nil {
 			opts.OnProgress(cur, total)
 		}
+		progressMu.Unlock()
 	}
 
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for gamePath := range jobs {
-				gd, err := loadGame(gamePath, opts)
+			for job := range jobs {
+				gamePath := job.path
+				var gd *GameData
+				var err error
+				if job.steam != nil {
+					gd = job.steam
+					prepareSteamArtwork(gd, opts)
+				} else {
+					gd, err = loadGame(gamePath, opts)
+				}
 				if err != nil {
 					lgx.Errorf("error loading game from %q: %v", gamePath, err)
 					if opts.OnError != nil {
@@ -104,7 +117,10 @@ func LoadGamesWithOptions(rootPath string, opts LoadOptions) map[uuid.UUID]*Game
 	}
 
 	for _, gamePath := range gameDirs {
-		jobs <- gamePath
+		jobs <- loadJob{path: gamePath}
+	}
+	for _, game := range steamGames {
+		jobs <- loadJob{steam: game}
 	}
 	close(jobs)
 	wg.Wait()

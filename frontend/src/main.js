@@ -2,7 +2,7 @@ import "./css/base.css";
 import "./css/cards.css";
 import "./css/topbar.css";
 import "./css/sound.css";
-import { OpenSteam, Shutdown, Restart, ExitLauncher, OpenBluetoothPairing, LoadGames, Launch, Explorer, GetStatuses, Info, Warn, Error } from "/wailsjs/go/main/App.js";
+import { OpenSteam, Shutdown, Restart, ExitLauncher, OpenBluetoothPairing, LoadGames, Launch, SteamUpdateStates, Explorer, GetStatuses, Info, Warn, Error } from "/wailsjs/go/main/App.js";
 import { EventsOn } from "/wailsjs/runtime";
 import { initBTIndicator } from "./features/bluetooth.js";
 import { startClock } from "./features/clock.js";
@@ -13,6 +13,9 @@ import { initSoundSettings, openSoundSettings } from "./features/sound.js";
 import { initUIScale } from "./features/uiScale.js";
 import controllerIconURL from "./assets/images/controller-ico-2.png";
 import keyboardMouseIconURL from "./assets/images/kbm-ico.png";
+import steamIconURL from "./assets/images/steam-ico.svg";
+import updateIconURL from "./assets/images/update-ico.svg";
+import { initLaunchFeedback } from "./features/launchFeedback.js";
 
 // build topbar once (or keep your existing HTML)
 document.querySelector("#btn-reload")?.addEventListener("click", () => window.location.reload());
@@ -65,11 +68,14 @@ function normalizeGame(g, fallbackID = "") {
     controls: g.controls ?? g.Controls ?? 0,
     thumbnailUrl: g.thumbnailUrl ?? g.ThumbnailURL ?? "",
     imageHash: g.imageHash ?? g.ImageHash ?? "",
+    steamAppId: g.steamAppId ?? g.SteamAppID ?? 0,
+    steamNeedsUpdate: g.steamNeedsUpdate ?? g.SteamNeedsUpdate ?? false,
   };
 }
 
 function normalizeControls(value) {
   const mode = Number(value);
+  if (mode === -1) return [];
   if (mode === 1) return ["keyboardMouse"];
   if (mode === 2) return ["keyboardMouse", "controller"];
   return ["controller"];
@@ -105,6 +111,7 @@ function setControlIcons(card, value) {
     const img = document.createElement("img");
     img.src = controlIconURL[kind];
     img.alt = "";
+
     img.decoding = "async";
     icon.append(img);
     el.append(icon);
@@ -154,6 +161,18 @@ function upsertCard(rawGame) {
     img.fetchPriority = "low";
     img.alt = "";
 
+    const steamBadge = document.createElement("span");
+    steamBadge.className = "steam-corner-badge";
+    steamBadge.hidden = true;
+    steamBadge.setAttribute("role", "img");
+    steamBadge.setAttribute("aria-label", "Steam game");
+    steamBadge.title = "Steam game";
+    const steamLogo = document.createElement("img");
+    steamLogo.src = steamIconURL;
+    steamLogo.alt = "";
+    steamLogo.decoding = "async";
+    steamBadge.append(steamLogo);
+
     const body = document.createElement("div");
     body.className = "body";
 
@@ -163,13 +182,24 @@ function upsertCard(rawGame) {
     const title = document.createElement("div");
     title.className = "title";
 
+    const update = document.createElement("span");
+    update.className = "update-needed-icon";
+    update.hidden = true;
+    update.setAttribute("role", "img");
+    update.setAttribute("aria-label", "Update needed");
+    update.title = "Update needed — Steam will update this game before launch";
+    const updateImage = document.createElement("img");
+    updateImage.src = updateIconURL;
+    updateImage.alt = "";
+    update.append(updateImage);
+
     const controlIcons = document.createElement("div");
     controlIcons.className = "control-icons";
     controlIcons.hidden = true;
 
-    titleRow.append(title, controlIcons);
+    titleRow.append(update, title, controlIcons);
     body.append(titleRow);
-    card.append(img, body);
+    card.append(img, body, steamBadge);
 
     card.addEventListener("click", () => Launch(g.id).catch(console.error));
     card.addEventListener("keydown", (e) => {
@@ -183,14 +213,37 @@ function upsertCard(rawGame) {
   }
 
   card.dataset.name = g.name || "";
+  card.dataset.thumbnailUrl = g.thumbnailUrl || "";
+  card.querySelector(".steam-corner-badge").hidden = !g.steamAppId;
   card.querySelector(".title").textContent = g.name || "";
+  setUpdateNeeded(card, g.steamNeedsUpdate);
   setControlIcons(card, g.controls);
   const img = card.querySelector("img.thumb");
-  img.src = g.thumbnailUrl || "";
+  img.src = g.thumbnailUrl || (g.steamAppId ? steamIconURL : "");
+  img.alt = g.name || "";
   img.dataset.hash = g.imageHash || "";
 
   insertSorted(card);
   controllerRefresh();
+}
+
+function setUpdateNeeded(card, needed) {
+  card.querySelector(".update-needed-icon").hidden = !needed;
+  card.setAttribute("aria-label", `${card.dataset.name}${needed ? ". Update needed. Steam will update this game before launch." : ""}`);
+}
+
+let checkingSteamUpdates = false;
+async function refreshSteamUpdates() {
+  if (checkingSteamUpdates) return;
+  checkingSteamUpdates = true;
+  try {
+    const states = await SteamUpdateStates();
+    Object.entries(states || {}).forEach(([id, needed]) => {
+      const card = cardsByID.get(id);
+      if (card) setUpdateNeeded(card, needed);
+    });
+  } catch (err) { console.warn("Steam update state unavailable:", err); }
+  finally { checkingSteamUpdates = false; }
 }
 
 function mergeReturnedGames(raw) {
@@ -230,6 +283,9 @@ function repaintGridAfterRestore() {
   });
 }
 
+initLaunchFeedback(() => controllerFocusGrid(), (id) => ({
+  thumbnailUrl: cardsByID.get(id)?.dataset.thumbnailUrl || "",
+}));
 controllerInit({
   getCards: () => [...document.querySelectorAll(".content .grid .card, .content .scrollport .grid .card")],
   getBarButtons: () => [...document.querySelectorAll(".topbar .btn")],
@@ -240,6 +296,11 @@ controllerInit({
 });
 
 EventsOn("game:loaded", upsertCard);
+EventsOn("game:update-status", ({ id, needsUpdate }) => {
+  const card = cardsByID.get(id);
+  if (card) setUpdateNeeded(card, needsUpdate);
+});
+setInterval(refreshSteamUpdates, 15000);
 EventsOn("games:loading", setLoadStatus);
 EventsOn("game:load-error", (payload) => {
   console.warn("Game load failed:", payload);
@@ -250,6 +311,7 @@ EventsOn("game:launch-error", (payload) => {
 EventsOn("game:end", () => {
   repaintGridAfterRestore();
   controllerFocusGrid();
+  refreshSteamUpdates();
 });
 EventsOn("status:update", (payload) => {
   if (payload && "debug" in payload) setDebugToolsVisible(!!payload.debug);

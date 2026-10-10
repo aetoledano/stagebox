@@ -17,6 +17,7 @@ import (
 )
 
 func LaunchSteamSession(steamExe string) RunningGame {
+	stopSteamUIBackgrounding()
 	done := make(chan error, 1)
 	pid := make(chan int, 1)
 	exited := make(chan struct{})
@@ -63,8 +64,8 @@ func runSteamSession(steamExe string, pid chan<- int) error {
 		lgx.Infof("Steam session attaching to existing clients path=%q session=%d pids=%v", exe, sessionID, clients)
 	}
 
-	// Also send the normal activation request when Steam already owns the singleton.
-	cmd := exec.Command(exe)
+	// Explicitly enter Big Picture, including after a tray-only game launch.
+	cmd := exec.Command(exe, steamSessionLaunchArgs()...)
 	cmd.Dir = filepath.Dir(exe)
 	if err := cmd.Start(); err != nil {
 		return err
@@ -77,19 +78,20 @@ func runSteamSession(steamExe string, pid chan<- int) error {
 	rootExit := make(chan error, 1)
 	go func() { rootExit <- cmd.Wait() }()
 	// Capture the request process promptly; subsequent samples find independent restarts.
-	if process, err := tracker.open(initialPID); err == nil && process != nil && strings.EqualFold(process.path, tracker.exe) {
+	if process, err := tracker.open(initialPID); err == nil && process != nil && tracker.clientExecutable(process.path) {
 		process.client = true
 		tracker.add(initialPID, process)
 	} else if process != nil {
 		_ = windows.CloseHandle(process.handle)
 	}
 
-	state := steamSessionState{}
+	state := steamSessionState{started: time.Now()}
 	handedOff := len(clients) > 0
 	var initialErr error
 	var failures int
 	previousClients := clients
 	previousVisible := false
+	previousUI := steamClientUIActivity{}
 	for {
 		select {
 		case initialErr = <-rootExit:
@@ -97,7 +99,7 @@ func runSteamSession(steamExe string, pid chan<- int) error {
 			rootExit = nil
 		default:
 		}
-		clients, visible, err := tracker.sample()
+		clients, _, err := tracker.sample()
 		if err != nil {
 			failures++
 			state.absentSince = time.Time{}
@@ -108,26 +110,42 @@ func runSteamSession(steamExe string, pid chan<- int) error {
 			time.Sleep(steamPollInterval)
 			continue
 		}
+		ui, err := tracker.clientUIActivity()
+		if err != nil {
+			failures++
+			state.absentSince = time.Time{}
+			lgx.Warnf("Steam UI sample failed attempt=%d err=%v", failures, err)
+			if failures >= 3 {
+				return fmt.Errorf("track Steam UI: %w", err)
+			}
+			time.Sleep(steamPollInterval)
+			continue
+		}
 		failures = 0
+		visible := ui.game
 		for _, client := range clients {
 			if client != initialPID {
 				handedOff = true
 			}
 		}
-		if !slices.Equal(clients, previousClients) || visible != previousVisible {
-			lgx.Infof("Steam session changed clients=%v visibleGame=%v", clients, visible)
+		if !slices.Equal(clients, previousClients) || visible != previousVisible || ui != previousUI {
+			lgx.Infof("Steam session changed clients=%v visibleUI=%v bigPicture=%v visibleGame=%v", clients, ui.visible, ui.bigPicture, visible)
 			previousClients, previousVisible = clients, visible
+			previousUI = ui
 		}
 		wasAbsent := !state.absentSince.IsZero()
-		if state.finished(time.Now(), len(clients), visible) {
-			lgx.Infof("Steam session ended after restart grace path=%q", exe)
+		if state.finished(time.Now(), steamSessionActivity{clients: len(clients), visibleUI: ui.visible, bigPicture: ui.bigPicture, visibleGame: visible, gameProcesses: ui.gameProcesses}) {
+			lgx.Infof("Steam session ended after UI/game absence path=%q sawActivity=%v sawBigPicture=%v", exe, state.sawActivity, state.sawBigPicture)
 			if !handedOff && initialErr != nil {
 				return initialErr
+			}
+			if !state.sawActivity {
+				return errors.New("Steam showed no interface or game window before the startup timeout")
 			}
 			return nil
 		}
 		if !wasAbsent && !state.absentSince.IsZero() {
-			lgx.Infof("Steam session waiting for restart grace=%s", steamRestartGrace)
+			lgx.Infof("Steam session UI absent clients=%d gameProcesses=%d; debouncing exit/handoff", len(clients), ui.gameProcesses)
 		}
 		time.Sleep(steamPollInterval)
 	}
@@ -147,6 +165,20 @@ type steamTracker struct {
 	processes map[uint32]*steamTrackedProcess
 }
 
+// QueryFullProcessImageName and discovery can spell the same installation
+// differently (junctions, short paths, etc.). Never attach by basename alone.
+func (t *steamTracker) clientExecutable(path string) bool {
+	if strings.EqualFold(filepath.Clean(path), t.exe) {
+		return true
+	}
+	expected, err := os.Stat(t.exe)
+	if err != nil {
+		return false
+	}
+	actual, err := os.Stat(path)
+	return err == nil && os.SameFile(expected, actual)
+}
+
 func (t *steamTracker) close() {
 	for _, process := range t.processes {
 		_ = windows.CloseHandle(process.handle)
@@ -161,6 +193,10 @@ func (t *steamTracker) add(pid uint32, process *steamTrackedProcess) {
 }
 
 func (t *steamTracker) open(pid uint32) (*steamTrackedProcess, error) {
+	return t.openWithAccess(pid, processQueryLimitedInformation|windows.SYNCHRONIZE)
+}
+
+func (t *steamTracker) openWithAccess(pid uint32, access uint32) (*steamTrackedProcess, error) {
 	var sessionID uint32
 	if err := windows.ProcessIdToSessionId(pid, &sessionID); err != nil {
 		return nil, err
@@ -168,7 +204,7 @@ func (t *steamTracker) open(pid uint32) (*steamTrackedProcess, error) {
 	if sessionID != t.sessionID {
 		return nil, nil
 	}
-	handle, err := windows.OpenProcess(processQueryLimitedInformation|windows.SYNCHRONIZE, false, pid)
+	handle, err := windows.OpenProcess(access, false, pid)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +270,7 @@ func (t *steamTracker) sample() ([]uint32, bool, error) {
 		if process == nil {
 			continue
 		}
-		if !strings.EqualFold(process.path, t.exe) {
+		if !t.clientExecutable(process.path) {
 			_ = windows.CloseHandle(process.handle)
 			continue
 		}

@@ -9,9 +9,12 @@ The project can be inspected and partially built on Linux, but the production ru
 - Fullscreen game library with cached cover thumbnails.
 - Controller and keyboard navigation for the launcher UI.
 - Per-game launch metadata through simple `lc.json` files.
+- A shared launch-status screen for local and Steam games, with dismissible launch errors.
+- Matching space-themed artwork behind the library cards and a native loading fallback during game transitions.
 - Game process tracking with optional process-tree mode for launcher/bootstrapper games.
 - Optional per-game controller-to-keyboard/mouse mappings.
 - Optional delayed key press for games that open an intermediate launcher.
+- Automatically lists installed Steam games alongside local games, with cached Steam artwork and game-specific advanced process tracking.
 - Steam button that opens Steam if installed or downloads the installer when missing.
 - Sound Settings for selecting the Windows default output device, with current-output highlighting, master volume, and mute controls.
 - Bluetooth status indicator and Windows pairing wizard integration.
@@ -26,7 +29,7 @@ The project can be inspected and partially built on Linux, but the production ru
 
 - Windows 10 or Windows 11.
 - Microsoft Edge WebView2 Runtime.
-- A folder containing your games and one `lc.json` file per game.
+- A folder containing local games with one `lc.json` per game, or an installed Steam library.
 - Administrator access if you want to install StageBox as a kiosk shell with the provided PowerShell installer.
 
 ### Development
@@ -87,7 +90,7 @@ If you only want to run the app without installing it as the Windows shell, plac
 }
 ```
 
-`gamesRoot` points to the folder StageBox scans for games. `debug` changes the exit behavior: in debug mode, the exit menu item quits the current launcher process; in normal mode, it exits back to Windows and coordinates with the service loop.
+`gamesRoot` points to the folder StageBox scans for local games. Installed Steam games are discovered separately, including Steam library folders on other drives; their editable launch settings are generated under `gamesRoot/SteamGames`. `debug` changes the exit behavior: in debug mode, the exit menu item quits the current launcher process; in normal mode, it exits back to Windows and coordinates with the service loop.
 
 ## Game Library Format
 
@@ -167,18 +170,58 @@ Important metadata notes:
 - `showCursor` should be enabled for games or launchers that need the Windows cursor visible.
 - `keyMap` maps gamepad input to keyboard or mouse input while the game is running. See `keypad-sample.json` for a working sample.
 
+## Steam Library
+
+StageBox automatically finds Steam through its Windows installation registry entries, `STEAM_PATH`/`STEAM_DIR`, or standard Program Files locations. It scans Steam's configured library folders and adds games with a fully installed manifest and files present on disk. Uninstalled games, unfinished downloads, and Steamworks redistributables are excluded. Available offline Steam metadata also filters out tools and supplies the card icons: full controller support shows a controller, partial support shows controller and keyboard/mouse, and no declared support shows keyboard/mouse. Missing metadata leaves icons hidden. Reload the launcher after installing or removing games.
+
+Steam cards have a folded upper-right corner with the Steam logo. Cards use Steam's local artwork cache first, including newer content-hash folders. Missing artwork is downloaded from Steam and cached for later offline use; if artwork is unavailable, the game remains listed with a Steam icon. No account API key is required.
+
+Launching a Steam card first waits for a live Steam client with stable client/DLL registration. StageBox starts Steam silently when closed, or sends one silent reactivation if an existing client's registration remains unavailable. It shows “Starting Steam…”, “Waiting for Steam…” or “Connecting to Steam…” during these stages. It then asks Steam to run that game, preserving Steam launch options, DRM, and first-run setup. StageBox tracks the selected game's processes with a dedicated Job Object and native handles; it returns when the game closes even if Steam stays open. Start+Back stops the tracked game without closing Steam or other library games. StageBox keeps a launch-status panel visible until the actual game window opens. Startup allows two minutes without update progress; active download/install progress extends the wait. After startup, an empty tracked game process set returns after a 750ms debounce; windowless live processes keep a ten-second handoff grace.
+
+If an established client's registration keeps pointing to a dead process, StageBox attempts one graceful Steam restart while showing “Reconnecting to Steam…”. It checks Steam's tracked process tree and all library manifests for games/downloads first, waits for Steam to exit normally, then starts it silently and waits for fresh registration. Unrelated desktop and driver processes are not inspected. Games started through independent external brokers without tracked Steam ancestry or busy manifest flags may escape this activity check. Busy or uncertain state and a refused shutdown produce a specific error; StageBox never forcibly terminates Steam to repair registration. Healthy clients remain running as usual after games close.
+
+After a Steam card session ends, StageBox hides remaining client windows, asks Steam to leave Big Picture when that window exists, and reclaims native foreground focus before resuming launcher input. A brief background watcher hides late Steam UI; opening Steam again cancels it so Big Picture can reopen normally. Steam remains running for downloads and other background work. The topbar Steam button explicitly opens fullscreen Big Picture, including when Steam already runs in the tray; no persistent Steam settings are changed.
+
+Steam cards show a white update icon before the title when the local Steam manifest reports an update is needed. The status refreshes every 15 seconds and after a session. Launch feedback shows downloading/installing progress when Steam supplies byte counters. This reflects updates already known to Steam; Steam may discover additional updates at launch.
+
+Steam card launches require internet access. If StageBox cannot verify access, it keeps the launcher visible and shows an internet-required message; dismiss it with controller A/B/Start or Enter/Escape. Local games and the topbar Steam button retain their existing behavior.
+
+### Per-game Steam settings
+
+On first discovery, StageBox creates `gamesRoot/SteamGames/<AppID>-lc.json` with the game name and defaults. Edit that file to override cursor/input settings, for example:
+
+```json
+{
+  "steamAppId": 570,
+  "name": "Dota 2",
+  "showCursor": false,
+  "controls": 0,
+  "waitAfterExitSeconds": 0,
+  "delayedKey": null,
+  "keyMap": null
+}
+```
+
+Keep `steamAppId` unchanged. Supported settings are `name`, `description`, `image`, `controls`, `showCursor`, `waitAfterExitSeconds`, `delayedKey`, and `keyMap`, using the same meanings as local game settings. Relative custom images resolve from the `SteamGames` folder. Omit a field to inherit its discovered default; explicit `false` and `0` override defaults. Steam manages launch options and StageBox retains its game-specific advanced tracking.
+
+Existing files are never rewritten. Cursor/input edits apply on the next launch; reload StageBox to refresh card title/artwork/control edits. Configs are removed after uninstall and launcher reload when their manifests are absent. Downloading games, unavailable drives, missing Steam, or incomplete scans keep your files. Invalid configs remain on disk and show an error at launch.
+
+Steam game tracking attaches after Steam creates the game process. Games started entirely through unrelated external brokers or protected/elevated processes can need additional tracking support; job assignment failures are logged and use handle tracking where possible. Check `stagebox.log` when a Steam game returns to the launcher unexpectedly.
+
+Game crash-reporting helpers remain tracked for Start+Back cleanup, but their windows and process lifetime do not count as the game opening or staying active. A Crashpad helper can be present during normal play; its presence alone is not a crash diagnosis.
+
 ## How To Use
 
 1. Start StageBox.
-2. Wait for the game grid to load from `gamesRoot`.
+2. Wait for the game grid to load local games and installed Steam games.
 3. Navigate with a controller D-pad/left stick or keyboard arrows.
 4. Press the controller `A` button or `Enter` to launch the selected game.
-5. StageBox hides while the game is running and restores itself after the tracked process exits.
+5. StageBox shows a cinematic launch panel with the game's cached artwork, a green glow, and “Starting game…” until a visible game or intermediate launcher window appears, then hides and restores itself after the tracked session exits. Missing artwork uses an atmospheric moon-and-forest backdrop. Steam launches also show connection/update progress, with percentages only when available. Cursor settings, controller mapping targets, and delayed-key timing take effect at the window handoff.
 6. Open the tools menu for Bluetooth pairing, Wi-Fi networks, reloading games, opening the games folder, restart, power off, or exiting the launcher.
-7. Use the Steam button in the top bar to open Steam. If Steam is not found, StageBox downloads and starts the official Steam installer.
+7. Use the Steam button in the top bar to open Steam Big Picture for controller navigation. If Steam is not found, StageBox downloads and starts the official Steam installer.
 8. Open Sound Settings from the tools menu to choose an output device. While StageBox is focused, right-stick up/down adjusts volume; the speaker indicator and temporary volume bar show the current level. Right-stick volume control is disabled during games. Keyboard multimedia volume/mute keys work system-wide, including games, without bringing StageBox to the foreground.
 
-Steam sessions follow existing and replacement clients from the same executable path and Windows session, instead of ending when the initial activation process exits. StageBox waits 10 seconds without a matching client or visible tracked game before returning, allowing update/restart handoffs. This also adds a 10-second delay after normal Steam shutdown. Background helpers alone do not keep the session open; Steam is not placed in a Job Object and its kill-shortcut behavior is unchanged. Update handoffs taking longer than the grace, or games started through unrelated processes, may still require further tracking adjustments.
+The topbar Steam session follows existing and replacement clients from the same executable path and Windows session. After Big Picture appears, StageBox returns after 750ms without Big Picture/game windows when no tracked game process remains; full Steam shutdown uses a 1.5-second debounce. Windowless live game processes retain a ten-second handoff grace. Closing to the tray or exiting Big Picture into desktop Steam also returns to StageBox. Remaining client windows are hidden and StageBox reclaims foreground focus before input resumes. Sign-in/update windows remain usable during startup, with a two-minute limit if a live client shows no interface. Steam is not placed in a Job Object and its kill-shortcut behavior is unchanged. Mid-session client restarts or completely empty game handoffs taking longer than the short debounce, changed Steam window identities, or games started through unrelated processes may need further tracking adjustments.
 
 ## Development
 
@@ -210,13 +253,15 @@ npm --prefix frontend run preview
 
 ## Logs And Troubleshooting
 
-- `stagebox.log` is written by the launcher and is truncated on each start.
+- `stagebox.log` is written in the launcher's working directory and preserved across restarts. Its absolute path is logged at startup. At startup, logs of at least 8MiB rotate to `stagebox.log.previous`, replacing the previous backup; a single long run can grow beyond that size.
+- Logging always includes DEBUG messages. `config.json`'s `debug` flag controls exit behavior, not log verbosity.
+- For intermittent Steam launch failures, capture the log around `Steam game requested`, `Steam readiness snapshot policy=registered-stable-v3`, `Steam stale registration recovery`, and `Steam game process exited`. These show registration, client age/access context, recovery results and native exit status; stable registration does not guarantee successful Steam API initialization or sign-in.
 - `svc.log` is written by the service/helper scripts on Windows.
-- If no games appear, check that `config.json` points to a readable `gamesRoot` and that each game folder contains a valid `lc.json`.
+- If no local games appear, check that `config.json` points to a readable `gamesRoot` and that each game folder contains a valid `lc.json`. For missing Steam games, check Steam is installed, the library drive is available, and downloads have finished; reload StageBox and inspect its Steam discovery logs.
 - If a game opens another launcher and StageBox returns too early, try `"trackMode": "processTree"`.
 - If Wi-Fi scanning fails in kiosk mode, rerun `install-stagebox.ps1` as Administrator and inspect `svc.log`.
 - If the screen is black after shell startup, inspect `stagebox.log` for frontend boot and render markers.
 
 ## Publishing Notes
 
-Before making the repository public, add a top-level `LICENSE` file and update this section with the selected license. The bundled Nunito font files include their own SIL Open Font License text under `frontend/src/assets/fonts/OFL.txt`.
+Before making the repository public, add a top-level `LICENSE` file and update this section with the selected license. The bundled Nunito font files include their own SIL Open Font License text under `frontend/src/assets/fonts/OFL.txt`. The Steam vector icon comes from [Simple Icons](https://github.com/simple-icons/simple-icons/blob/develop/icons/steam.svg), distributed under [CC0](https://github.com/simple-icons/simple-icons/blob/develop/LICENSE.md).

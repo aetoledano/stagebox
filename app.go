@@ -76,7 +76,7 @@ func (a *App) startup(ctx context.Context) {
 	// Start the bottom-most wallpaper host
 	loadingWallpaper := a.loadingWallpaper
 	if loadingWallpaper == "" {
-		loadingWallpaper = "loading.jpg"
+		loadingWallpaper = "loading-space.png"
 	}
 	if stop, err := wallpaper.StartWallpaper(loadingWallpaper, "cover"); err == nil {
 		// ensure it is torn down cleanly
@@ -193,6 +193,7 @@ func (a *App) LoadGames() map[uuid.UUID]*games.GameData {
 	}
 
 	loaded := games.LoadGamesWithOptions(a.config.GamesRoot, games.LoadOptions{
+		SteamExecutable:    findSteamExecutable(),
 		ThumbnailDir:       a.thumbnailDir,
 		ThumbnailURLPrefix: a.thumbnailURLPrefix,
 		Workers:            games.DefaultLoadWorkers,
@@ -228,7 +229,7 @@ func (a *App) LoadGames() map[uuid.UUID]*games.GameData {
 		"total":   finalTotal,
 	})
 
-	return a.games
+	return loaded
 }
 
 func (a *App) beginGameSession(name string) bool {
@@ -263,6 +264,17 @@ func (a *App) Launch(id uuid.UUID) {
 	if !a.beginGameSession(game.Name) {
 		return
 	}
+	runtime.EventsEmit(a.ctx, "game:launch-begin", map[string]any{"id": game.ID.String()})
+	if game.SteamAppID != 0 {
+		prepared, err := a.prepareSteamCard(game)
+		if err != nil {
+			a.endGameSession()
+			lgx.Warnf("Steam card launch blocked name=%q: %v", game.Name, err)
+			runtime.EventsEmit(a.ctx, "game:launch-blocked", map[string]any{"id": game.ID.String(), "name": game.Name, "error": err.Error()})
+			return
+		}
+		game = prepared
+	}
 
 	gameKeyMapActive := false
 	a.pauseKeyboardInput()
@@ -292,26 +304,62 @@ func (a *App) Launch(id uuid.UUID) {
 		"name": game.Name,
 	})
 
-	runtime.WindowHide(a.ctx)
-
-	run := games.LaunchGame(game)
-	lgx.Debugf("launch session created id=%s name=%q lock=%q trackMode=%s", game.ID, game.Name, run.LockPath, run.TrackMode)
-	if game.DelayedKey != nil || gameKeyMapActive {
-		a.handleGameProcessStarted(game, run.PID, run.Exited, gameKeyMapActive)
-	} else {
-		a.focusGameAtStartup(run.PID)
+	if game.SteamAppID == 0 {
+		runtime.EventsEmit(a.ctx, "game:launch-status", map[string]any{"id": game.ID.String(), "name": game.Name,
+			"stage": "starting", "message": "Starting game…", "progress": -1})
 	}
+
+	run := games.LaunchGameWithOptions(game, games.LaunchOptions{OnStatus: func(status games.SteamLaunchStatus) {
+		runtime.EventsEmit(a.ctx, "game:launch-status", map[string]any{"id": game.ID.String(), "name": game.Name,
+			"stage": status.Stage, "message": status.Message, "progress": status.Progress})
+		runtime.EventsEmit(a.ctx, "game:update-status", map[string]any{"id": game.ID.String(), "needsUpdate": status.NeedsUpdate})
+	}})
+	lgx.Debugf("launch session created id=%s name=%q lock=%q trackMode=%s", game.ID, game.Name, run.LockPath, run.TrackMode)
+	var startupMu sync.Mutex
+	startupEnded := false
+	onWindowReady := func() bool {
+		startupMu.Lock()
+		defer startupMu.Unlock()
+		if startupEnded {
+			return false
+		}
+		if !a.clearGameLaunchFeedback(game.ID, run.Exited) {
+			return false
+		}
+		runtime.WindowHide(a.ctx)
+		if game.ShowCursor {
+			cursor.ForceCursorVisible()
+		} else {
+			cursor.ForceCursorHiddenFor(0)
+			go func() {
+				deadline := time.Now().Add(2 * time.Second)
+				for time.Now().Before(deadline) {
+					select {
+					case <-a.ctx.Done():
+						return
+					case <-time.After(200 * time.Millisecond):
+					}
+					startupMu.Lock()
+					if startupEnded {
+						startupMu.Unlock()
+						return
+					}
+					cursor.ForceCursorHiddenFor(0)
+					startupMu.Unlock()
+				}
+			}()
+		}
+		return true
+	}
+	a.handleGameWindowReady(game, run.WindowPID, run.Exited, gameKeyMapActive, onWindowReady)
 
 	// Don't block the call; wait in background
 	go func() {
 		defer a.endGameSession()
-		if game.ShowCursor {
-			cursor.ForceCursorVisible()
-		} else {
-			cursor.ForceCursorHiddenFor(2 * time.Second)
-		}
-
 		err := <-run.Done
+		startupMu.Lock()
+		startupEnded = true
+		startupMu.Unlock()
 		if err != nil {
 			lgx.Errorf("launch session ended with error id=%s name=%q err=%v", game.ID, game.Name, err)
 			runtime.EventsEmit(a.ctx, "game:launch-error", map[string]any{
@@ -322,6 +370,11 @@ func (a *App) Launch(id uuid.UUID) {
 		} else {
 			lgx.Infof("launch session ended id=%s name=%q", game.ID, game.Name)
 		}
+		if game.SteamAppID != 0 {
+			if uiErr := games.BackgroundSteamClient(a.ctx, game.Executable); uiErr != nil {
+				lgx.Warnf("Steam UI cleanup before launcher return failed: %v", uiErr)
+			}
+		}
 
 		cursor.RestoreSystemCursor()
 		if a.pad != nil && gameKeyMapActive {
@@ -330,14 +383,13 @@ func (a *App) Launch(id uuid.UUID) {
 		controller.MoveCursorTo(0, 0)
 		cursor.SetCursorHidden(true)
 
+		// Event delivery is asynchronous: wait for the frontend to apply the
+		// completed state before the native window can expose startup UI.
+		a.endGameLaunchFeedback(game.ID.String(), game.Name, err == nil)
 		a.bringBack()
-
-		// Let frontend resume input
-		runtime.EventsEmit(a.ctx, "game:end", map[string]any{
-			"id":   game.ID.String(),
-			"name": game.Name,
-			"ok":   err == nil,
-		})
+		if game.SteamAppID != 0 {
+			a.focusAfterSteamSession()
+		}
 
 		if a.pad != nil {
 			a.pad.Resume()
@@ -346,10 +398,48 @@ func (a *App) Launch(id uuid.UUID) {
 	}()
 }
 
-func (a *App) handleGameProcessStarted(game *games.GameData, pidCh <-chan int, exited <-chan struct{}, gameKeyMapActive bool) {
+func (a *App) clearGameLaunchFeedback(id uuid.UUID, exited <-chan struct{}) bool {
+	return a.emitGameFeedbackAndWait("game:window-ready", map[string]any{"id": id.String()}, exited)
+}
+
+func (a *App) endGameLaunchFeedback(id, name string, ok bool) {
+	a.emitGameFeedbackAndWait("game:end", map[string]any{"id": id, "name": name, "ok": ok}, nil)
+}
+
+func (a *App) emitGameFeedbackAndWait(event string, payload map[string]any, exited <-chan struct{}) bool {
+	ackEvent := event + "-ack:" + uuid.NewString()
+	ack := make(chan struct{}, 1)
+	cancel := runtime.EventsOnce(a.ctx, ackEvent, func(...interface{}) {
+		select {
+		case ack <- struct{}{}:
+		default:
+		}
+	})
+	defer cancel()
+	payload["ack"] = ackEvent
+	runtime.EventsEmit(a.ctx, event, payload)
+	timer := time.NewTimer(500 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ack:
+		return true
+	case <-timer.C:
+		lgx.Warnf("launch panel acknowledgement timed out event=%s id=%v", event, payload["id"])
+		return true // Never hold up a game/return because WebView is unresponsive.
+	case <-exited:
+		return false
+	case <-a.ctx.Done():
+		return false
+	}
+}
+
+func (a *App) handleGameWindowReady(game *games.GameData, pidCh <-chan int, exited <-chan struct{}, gameKeyMapActive bool, onReady func() bool) {
 	go func() {
 		pid, ok := <-pidCh
 		if !ok || pid <= 0 {
+			return
+		}
+		if onReady != nil && !onReady() {
 			return
 		}
 
@@ -362,16 +452,6 @@ func (a *App) handleGameProcessStarted(game *games.GameData, pidCh <-chan int, e
 		if game.DelayedKey != nil {
 			a.scheduleDelayedKeyForPID(game, uint32(pid), exited)
 		}
-	}()
-}
-
-func (a *App) focusGameAtStartup(pidCh <-chan int) {
-	go func() {
-		pid, ok := <-pidCh
-		if !ok || pid <= 0 {
-			return
-		}
-		a.focusGamePIDFor(uint32(pid), 6*time.Second)
 	}()
 }
 
