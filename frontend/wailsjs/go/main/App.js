@@ -58,6 +58,10 @@ export function OpenBluetoothPairing() {
   return window['go']['main']['App']['OpenBluetoothPairing']();
 }
 
+export function OpenRetroBat() {
+  return window['go']['main']['App']['OpenRetroBat']();
+}
+
 export function OpenSteam() {
   return window['go']['main']['App']['OpenSteam']();
 }

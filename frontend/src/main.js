@@ -2,7 +2,7 @@ import "./css/base.css";
 import "./css/cards.css";
 import "./css/topbar.css";
 import "./css/sound.css";
-import { OpenSteam, Shutdown, Restart, ExitLauncher, OpenBluetoothPairing, LoadGames, Launch, SteamUpdateStates, Explorer, GetStatuses, Info, Warn, Error } from "/wailsjs/go/main/App.js";
+import { OpenRetroBat, OpenSteam, Shutdown, Restart, ExitLauncher, OpenBluetoothPairing, LoadGames, Launch, SteamUpdateStates, Explorer, GetStatuses, Info, Warn, Error } from "/wailsjs/go/main/App.js";
 import { EventsOn } from "/wailsjs/runtime";
 import { initBTIndicator } from "./features/bluetooth.js";
 import { startClock } from "./features/clock.js";
@@ -33,6 +33,7 @@ document.querySelector("#btn-restart")?.addEventListener("click", () => Restart(
 document.querySelector("#btn-shutdown")?.addEventListener("click", () => Shutdown());
 document.querySelector("#btn-explorer")?.addEventListener("click", () => Explorer());
 document.querySelector("#btn-open-steam")?.addEventListener("click", () => OpenSteam().catch(console.error));
+document.querySelector("#btn-open-retrobat")?.addEventListener("click", () => OpenRetroBat().catch(console.error));
 
 initUIScale(() => controllerRefresh());
 

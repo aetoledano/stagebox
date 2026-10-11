@@ -4,7 +4,10 @@ package controller
 
 import (
 	"context"
+	lgx "launcher/internal/logx"
 	"math"
+	"os"
+	goRuntime "runtime"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +23,7 @@ var (
 	xinput                       *windows.LazyDLL
 	xinputGetState               *windows.LazyProc
 	legacyJoystickReady          atomic.Bool
+	connectedControllers         atomic.Int32
 	winmm                        = windows.NewLazySystemDLL("winmm.dll")
 	procJoyGetNumDevs            = winmm.NewProc("joyGetNumDevs")
 	procJoyGetPosEx              = winmm.NewProc("joyGetPosEx")
@@ -37,15 +41,6 @@ var (
 	procIsIconic                 = user32.NewProc("IsIconic")
 )
 
-type xinputGamepad struct {
-	wButtons      uint16
-	bLeftTrigger  byte
-	bRightTrigger byte
-	sThumbLX      int16
-	sThumbLY      int16
-	sThumbRX      int16
-	sThumbRY      int16
-}
 type xinputState struct {
 	dwPacketNumber uint32
 	Gamepad        xinputGamepad
@@ -68,23 +63,9 @@ type joyInfoEx struct {
 }
 
 const (
-	XINPUT_GAMEPAD_DPAD_UP        = 0x0001
-	XINPUT_GAMEPAD_DPAD_DOWN      = 0x0002
-	XINPUT_GAMEPAD_DPAD_LEFT      = 0x0004
-	XINPUT_GAMEPAD_DPAD_RIGHT     = 0x0008
-	XINPUT_GAMEPAD_LEFT_SHOULDER  = 0x0100
-	XINPUT_GAMEPAD_RIGHT_SHOULDER = 0x0200
-	XINPUT_GAMEPAD_A              = 0x1000
-	XINPUT_GAMEPAD_B              = 0x2000
-	XINPUT_GAMEPAD_X              = 0x4000
-	XINPUT_GAMEPAD_Y              = 0x8000
-	XINPUT_GAMEPAD_START          = 0x0010
-	XINPUT_GAMEPAD_BACK           = 0x0020
-	XINPUT_GAMEPAD_LEFT_THUMB     = 0x0040
-	XINPUT_GAMEPAD_RIGHT_THUMB    = 0x0080
-	ERROR_DEVICE_NOT_CONNECTED    = 1167
-	joyReturnAll                  = 0x000000FF
-	joyPovCentered                = 0x0000FFFF
+	ERROR_DEVICE_NOT_CONNECTED = 1167
+	joyReturnAll               = 0x000000FF
+	joyPovCentered             = 0x0000FFFF
 
 	mouseEventLeftDown   = 0x0002
 	mouseEventLeftUp     = 0x0004
@@ -199,11 +180,13 @@ func loadLegacyJoystick() error {
 	return nil
 }
 
-type XInputBridge struct {
+type ControllerBridge struct {
 	ctx               context.Context
+	cancel            context.CancelFunc
 	paused            atomic.Int32 // 0 = running, 1 = paused
 	resetInput        atomic.Bool
 	quit              chan struct{}
+	stopOnce          sync.Once
 	mouse             atomic.Int32 // 0 = launcher events, 1 = OS cursor mode
 	keyboard          atomic.Int32 // 0 = launcher events, 1 = pairing keyboard mode
 	gameKeys          atomic.Int32 // 0 = launcher events, 1 = game key-map mode
@@ -227,34 +210,34 @@ type XInputBridge struct {
 	killArmed   bool
 }
 
-func StartXInputBridge(ctx context.Context, volumeAction func(string)) *XInputBridge {
-	xinputOK := loadXInput() == nil
-	legacyOK := loadLegacyJoystick() == nil
-	if !xinputOK && !legacyOK {
-		return nil // no controller polling API available
-	}
-	b := &XInputBridge{
+func StartControllerBridge(ctx context.Context, volumeAction func(string), downloadDatabase bool) *ControllerBridge {
+	ctx, cancel := context.WithCancel(ctx)
+	b := &ControllerBridge{
 		ctx:          ctx,
+		cancel:       cancel,
 		quit:         make(chan struct{}),
 		volumeAction: volumeAction,
+	}
+	if downloadDatabase {
+		go ensureControllerDatabase(ctx)
 	}
 	go b.loop()
 	return b
 }
 
-func (b *XInputBridge) Pause() {
+func (b *ControllerBridge) Pause() {
 	b.paused.Store(1)
 	b.resetInput.Store(true)
 }
-func (b *XInputBridge) Resume() {
+func (b *ControllerBridge) Resume() {
 	b.resetInput.Store(true)
 	b.paused.Store(0)
 }
-func (b *XInputBridge) EnableMouseMode() { b.EnableMouseModeForPID(0) }
-func (b *XInputBridge) EnableMouseModeForPID(pid uint32) {
+func (b *ControllerBridge) EnableMouseMode() { b.EnableMouseModeForPID(0) }
+func (b *ControllerBridge) EnableMouseModeForPID(pid uint32) {
 	b.EnableMouseModeForWindow(pid, 0)
 }
-func (b *XInputBridge) EnableMouseModeForWindow(pid uint32, window uintptr) {
+func (b *ControllerBridge) EnableMouseModeForWindow(pid uint32, window uintptr) {
 	b.inputTargetPID.Store(pid)
 	b.inputTargetWindow.Store(window)
 	b.gameKeys.Store(0)
@@ -262,19 +245,16 @@ func (b *XInputBridge) EnableMouseModeForWindow(pid uint32, window uintptr) {
 	b.mouse.Store(1)
 	b.resetInput.Store(true)
 }
-func (b *XInputBridge) DisableMouseMode() {
+func (b *ControllerBridge) DisableMouseMode() {
 	b.mouse.Store(0)
 	b.keyboard.Store(0)
 	b.gameKeys.Store(0)
 	b.inputTargetPID.Store(0)
 	b.inputTargetWindow.Store(0)
 	b.clearGameKeyMap()
-	b.mouseStick = ""
-	b.mouseStepX = 0
-	b.mouseStepY = 0
 	b.resetInput.Store(true)
 }
-func (b *XInputBridge) EnablePairingKeyboardModeForPID(pid uint32) {
+func (b *ControllerBridge) EnablePairingKeyboardModeForPID(pid uint32) {
 	b.inputTargetPID.Store(pid)
 	b.mouse.Store(0)
 	b.gameKeys.Store(0)
@@ -282,14 +262,14 @@ func (b *XInputBridge) EnablePairingKeyboardModeForPID(pid uint32) {
 	b.keyboard.Store(1)
 	b.resetInput.Store(true)
 }
-func (b *XInputBridge) DisablePairingKeyboardMode() {
+func (b *ControllerBridge) DisablePairingKeyboardMode() {
 	b.keyboard.Store(0)
 	b.mouse.Store(0)
 	b.gameKeys.Store(0)
 	b.inputTargetPID.Store(0)
 	b.resetInput.Store(true)
 }
-func (b *XInputBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
+func (b *ControllerBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
 	bindings := buildGameKeyBindings(keyMap)
 	mouseStick := normalizeInputName(keyMap.Mouse)
 	if mouseStick != "leftstick" && mouseStick != "rightstick" {
@@ -302,7 +282,6 @@ func (b *XInputBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
 	b.keyBindingsMu.Lock()
 	b.keyBindings = bindings
 	b.activeGameKeys = map[byte]bool{}
-	b.keyBindingsMu.Unlock()
 	b.mouseStick = mouseStick
 
 	base := keyMap.MouseSensitivity
@@ -318,6 +297,7 @@ func (b *XInputBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
 	if b.mouseStepY < 1 {
 		b.mouseStepY = 1
 	}
+	b.keyBindingsMu.Unlock()
 
 	b.inputTargetPID.Store(0)
 	b.mouse.Store(0)
@@ -326,21 +306,33 @@ func (b *XInputBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
 	b.resetInput.Store(true)
 	return true
 }
-func (b *XInputBridge) SetGameInputTargetPID(pid uint32) {
+func (b *ControllerBridge) SetGameInputTargetPID(pid uint32) {
 	b.inputTargetPID.Store(pid)
 }
-func (b *XInputBridge) DisableGameKeyMap() {
+func (b *ControllerBridge) DisableGameKeyMap() {
 	b.gameKeys.Store(0)
 	b.clearGameKeyMap()
-	b.mouseStick = ""
-	b.mouseStepX = 0
-	b.mouseStepY = 0
 	b.resetInput.Store(true)
 }
 
-func (b *XInputBridge) clearGameKeyMap() {
+func (b *ControllerBridge) clearGameKeyMap() {
 	b.keyBindingsMu.Lock()
 	defer b.keyBindingsMu.Unlock()
+	b.releaseGameInputsLocked()
+	b.keyBindings = nil
+	b.activeGameKeys = nil
+	b.mouseStick = ""
+	b.mouseStepX = 0
+	b.mouseStepY = 0
+}
+
+func (b *ControllerBridge) releaseGameInputs() {
+	b.keyBindingsMu.Lock()
+	defer b.keyBindingsMu.Unlock()
+	b.releaseGameInputsLocked()
+}
+
+func (b *ControllerBridge) releaseGameInputsLocked() {
 	for vk := range b.activeGameKeys {
 		switch vk {
 		case 0xF0:
@@ -352,9 +344,8 @@ func (b *XInputBridge) clearGameKeyMap() {
 		default:
 			keyUp(vk)
 		}
+		delete(b.activeGameKeys, vk)
 	}
-	b.keyBindings = nil
-	b.activeGameKeys = nil
 }
 
 func FocusProcessWindow(pid uint32) bool {
@@ -382,9 +373,10 @@ func SendKeyStrokeToPID(pid uint32, key string) bool {
 }
 
 func ConnectedCount() int {
-	if xinputGetState == nil {
-		_ = loadXInput()
-	}
+	return int(connectedControllers.Load())
+}
+
+func nativeConnectedCount() int {
 
 	count := 0
 	if xinputGetState != nil {
@@ -423,7 +415,7 @@ func legacyConnectedCount() int {
 	return count
 }
 
-func (b *XInputBridge) pollXInputGamepad(lastConn time.Time) (xinputGamepad, bool) {
+func (b *ControllerBridge) pollXInputGamepad(lastConn time.Time) (xinputGamepad, bool) {
 	if xinputGetState == nil {
 		return xinputGamepad{}, false
 	}
@@ -448,7 +440,7 @@ func (b *XInputBridge) pollXInputGamepad(lastConn time.Time) (xinputGamepad, boo
 	return xinputGamepad{}, false
 }
 
-func (b *XInputBridge) pollLegacyGamepad() (xinputGamepad, bool) {
+func (b *ControllerBridge) pollLegacyGamepad() (xinputGamepad, bool) {
 	if loadLegacyJoystick() != nil {
 		return xinputGamepad{}, false
 	}
@@ -558,20 +550,60 @@ func legacyAxisInverted(value uint32) int16 {
 	return int16(v)
 }
 
-func (b *XInputBridge) Stop() {
-	select {
-	case <-b.quit:
-	default:
+func (b *ControllerBridge) Stop() {
+	b.stopOnce.Do(func() {
+		b.cancel()
 		close(b.quit)
-	}
+	})
 }
 
-func (b *XInputBridge) loop() {
-	defer func() { _ = recover() }()
+func (b *ControllerBridge) loop() {
+	goRuntime.LockOSThread()
+	defer goRuntime.UnlockOSThread()
+	defer lgx.RecoverPanic("controller bridge")
+	var sdl *sdlBackend
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("STAGEBOX_CONTROLLER_BACKEND")), "legacy") {
+		lgx.Info("controller backend forced to legacy XInput/WinMM")
+	} else {
+		var err error
+		sdl, err = openSDLBackend()
+		if err != nil {
+			lgx.Warnf("SDL3 controller backend unavailable; using legacy XInput/WinMM: %v", err)
+		}
+	}
+	// Initialize native fallback on this same owner thread, never in status reads.
+	if err := loadXInput(); err != nil {
+		lgx.Warnf("XInput fallback unavailable: %v", err)
+	}
+	if err := loadLegacyJoystick(); err != nil {
+		lgx.Warnf("WinMM joystick fallback unavailable: %v", err)
+	}
+	defer func() {
+		b.releaseGameInputs()
+		connectedControllers.Store(0)
+		if sdl != nil {
+			sdl.shutdown()
+		}
+	}()
 	stickDZ := int16(8500)
 	var lastConn time.Time
 	var launcherGate launcherInputGate
+	var deviceGate launcherInputGate
 	var volumeStick volumeStickState
+	var deviceID uint64
+	var mappingRevision uint64
+	var nextNativeCount time.Time
+	nativeCount := 0
+	resetDevice := func() {
+		b.releaseGameInputs()
+		b.prevGamepad = xinputGamepad{}
+		b.prevButtons, b.holdDir = 0, ""
+		b.nextRepeat, b.killCombo = time.Time{}, time.Time{}
+		b.killArmed = false
+		launcherGate.reset()
+		deviceGate.reset()
+		volumeStick.reset()
+	}
 
 	t := time.NewTicker(8 * time.Millisecond)
 	defer t.Stop()
@@ -579,6 +611,8 @@ func (b *XInputBridge) loop() {
 	for {
 		select {
 		case <-b.quit:
+			return
+		case <-b.ctx.Done():
 			return
 		case <-t.C:
 		}
@@ -590,17 +624,59 @@ func (b *XInputBridge) loop() {
 			launcherGate.reset()
 		}
 
-		gp, ok := b.pollXInputGamepad(lastConn)
-		if ok {
-			lastConn = time.Now()
-		} else {
-			gp, ok = b.pollLegacyGamepad()
-			if !ok {
-				volumeStick.reset()
-				b.prevButtons, b.holdDir = 0, ""
-				launcherGate.reset()
-				continue
+		now := time.Now()
+		var gp xinputGamepad
+		var currentID uint64
+		ok := false
+		if sdl != nil {
+			state, id, count, err := sdl.poll(now)
+			if sdl.mappingRevision != mappingRevision {
+				resetDevice()
+				mappingRevision = sdl.mappingRevision
 			}
+			if err != nil {
+				lgx.Warnf("SDL3 input failed; switching to legacy XInput/WinMM: %v", err)
+				sdl.shutdown()
+				sdl = nil
+			} else if id != 0 {
+				gp, ok, currentID = state, true, uint64(3)<<32|uint64(id)
+				connectedControllers.Store(int32(count))
+			}
+		}
+		if !ok {
+			gp, ok = b.pollXInputGamepad(lastConn)
+			if ok {
+				lastConn = now
+				currentID = uint64(1)<<32 | uint64(b.activeIndex)
+			} else if gp, ok = b.pollLegacyGamepad(); ok {
+				currentID = uint64(2)<<32 | uint64(b.legacyIndex)
+			}
+			if !now.Before(nextNativeCount) || currentID != deviceID {
+				nativeCount = nativeConnectedCount()
+				nextNativeCount = now.Add(250 * time.Millisecond)
+			}
+			connectedControllers.Store(int32(nativeCount))
+		}
+		if currentID != deviceID {
+			resetDevice()
+			deviceID = currentID
+			backend := "none"
+			switch currentID >> 32 {
+			case 1:
+				backend = "xinput"
+			case 2:
+				backend = "winmm"
+			case 3:
+				backend = "sdl3"
+			}
+			lgx.Infof("controller input device changed backend=%s id=%d", backend, uint32(currentID))
+		}
+		if !ok {
+			continue
+		}
+		// Never inherit another pad's edges, held kill combo or mapped keys.
+		if !deviceGate.allow(true, gamepadNeutral(gp)) {
+			continue
 		}
 
 		buttons := gp.wButtons
@@ -729,7 +805,7 @@ func (b *XInputBridge) loop() {
 	}
 }
 
-func (b *XInputBridge) handleMouseMode(gp xinputGamepad, buttons uint16, just func(uint16) bool) {
+func (b *ControllerBridge) handleMouseMode(gp xinputGamepad, buttons uint16, just func(uint16) bool) {
 	if pid := b.inputTargetPID.Load(); pid != 0 {
 		hwnd, _, _ := procKeyboardGetForegroundWindow.Call()
 		if window := b.inputTargetWindow.Load(); window != 0 && hwnd != window {
@@ -779,7 +855,7 @@ func (b *XInputBridge) handleMouseMode(gp xinputGamepad, buttons uint16, just fu
 	}
 }
 
-func (b *XInputBridge) handlePairingKeyboardMode(gp xinputGamepad, buttons uint16, just func(uint16) bool) {
+func (b *ControllerBridge) handlePairingKeyboardMode(gp xinputGamepad, buttons uint16, just func(uint16) bool) {
 	const stickDeadzone = 8500
 
 	pid := b.inputTargetPID.Load()
@@ -824,11 +900,10 @@ func (b *XInputBridge) handlePairingKeyboardMode(gp xinputGamepad, buttons uint1
 	}
 }
 
-func (b *XInputBridge) handleGameKeyMap(gp xinputGamepad, buttons uint16, just func(uint16) bool) {
-	b.handleGameMouse(gp)
-
+func (b *ControllerBridge) handleGameKeyMap(gp xinputGamepad, buttons uint16, just func(uint16) bool) {
 	b.keyBindingsMu.Lock()
 	defer b.keyBindingsMu.Unlock()
+	b.handleGameMouse(gp)
 	if b.activeGameKeys == nil {
 		b.activeGameKeys = map[byte]bool{}
 	}
@@ -855,7 +930,7 @@ func (b *XInputBridge) handleGameKeyMap(gp xinputGamepad, buttons uint16, just f
 	}
 }
 
-func (b *XInputBridge) handleGameMouse(gp xinputGamepad) {
+func (b *ControllerBridge) handleGameMouse(gp xinputGamepad) {
 	if b.mouseStick == "" {
 		return
 	}
@@ -886,7 +961,7 @@ func stickMouseDelta(x int16, y int16, maxStepX int, maxStepY int) (int, int) {
 	return dx, dy
 }
 
-func (b *XInputBridge) mappedVKStillPressed(vk byte, gp xinputGamepad, buttons uint16) bool {
+func (b *ControllerBridge) mappedVKStillPressed(vk byte, gp xinputGamepad, buttons uint16) bool {
 	for _, binding := range b.keyBindings {
 		pressed, _ := b.gameBindingState(binding, gp, buttons)
 		if binding.mouse == "" && binding.vk == vk && pressed {
@@ -896,7 +971,7 @@ func (b *XInputBridge) mappedVKStillPressed(vk byte, gp xinputGamepad, buttons u
 	return false
 }
 
-func (b *XInputBridge) mappedMouseStillPressed(mouse string, gp xinputGamepad, buttons uint16) bool {
+func (b *ControllerBridge) mappedMouseStillPressed(mouse string, gp xinputGamepad, buttons uint16) bool {
 	for _, binding := range b.keyBindings {
 		pressed, _ := b.gameBindingState(binding, gp, buttons)
 		if binding.mouse == mouse && pressed {
@@ -922,7 +997,7 @@ func (binding gameKeyBinding) activeKey() byte {
 	}
 }
 
-func (b *XInputBridge) gameBindingState(binding gameKeyBinding, gp xinputGamepad, buttons uint16) (bool, bool) {
+func (b *ControllerBridge) gameBindingState(binding gameKeyBinding, gp xinputGamepad, buttons uint16) (bool, bool) {
 	switch binding.source {
 	case gameInputButton:
 		return buttons&binding.button != 0, b.prevButtons&binding.button != 0

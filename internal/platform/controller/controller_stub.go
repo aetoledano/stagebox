@@ -4,7 +4,7 @@ package controller
 
 import "context"
 
-type XInputBridge struct{}
+type ControllerBridge struct{}
 type KeyboardBridge struct{}
 type GameKeyMap struct {
 	Buttons          map[string][]string
@@ -14,28 +14,30 @@ type GameKeyMap struct {
 	MouseSensitivity int
 }
 
-func StartXInputBridge(ctx context.Context, volumeAction func(string)) *XInputBridge { return nil }
+func StartControllerBridge(ctx context.Context, volumeAction func(string), downloadDatabase bool) *ControllerBridge {
+	return nil
+}
 func StartKeyboardBridge(ctx context.Context, volumeAction func(string)) *KeyboardBridge {
 	return nil
 }
-func (b *XInputBridge) Pause()                                              {}
-func (b *XInputBridge) Resume()                                             {}
-func (b *XInputBridge) EnableMouseMode()                                    {}
-func (b *XInputBridge) EnableMouseModeForPID(pid uint32)                    {}
-func (b *XInputBridge) EnableMouseModeForWindow(pid uint32, window uintptr) {}
-func (b *XInputBridge) DisableMouseMode()                                   {}
-func (b *XInputBridge) EnablePairingKeyboardModeForPID(pid uint32) {
+func (b *ControllerBridge) Pause()                                              {}
+func (b *ControllerBridge) Resume()                                             {}
+func (b *ControllerBridge) EnableMouseMode()                                    {}
+func (b *ControllerBridge) EnableMouseModeForPID(pid uint32)                    {}
+func (b *ControllerBridge) EnableMouseModeForWindow(pid uint32, window uintptr) {}
+func (b *ControllerBridge) DisableMouseMode()                                   {}
+func (b *ControllerBridge) EnablePairingKeyboardModeForPID(pid uint32) {
 }
-func (b *XInputBridge) DisablePairingKeyboardMode() {}
-func (b *XInputBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
+func (b *ControllerBridge) DisablePairingKeyboardMode() {}
+func (b *ControllerBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
 	return false
 }
-func (b *XInputBridge) SetGameInputTargetPID(pid uint32) {}
-func (b *XInputBridge) DisableGameKeyMap()               {}
-func (b *XInputBridge) Stop()                            {}
-func (b *KeyboardBridge) Pause()                         {}
-func (b *KeyboardBridge) Resume()                        {}
-func (b *KeyboardBridge) Stop()                          {}
+func (b *ControllerBridge) SetGameInputTargetPID(pid uint32) {}
+func (b *ControllerBridge) DisableGameKeyMap()               {}
+func (b *ControllerBridge) Stop()                            {}
+func (b *KeyboardBridge) Pause()                             {}
+func (b *KeyboardBridge) Resume()                            {}
+func (b *KeyboardBridge) Stop()                              {}
 func LauncherHasFocus() bool {
 	// Non-Windows builds have no global input bridges; keep normal Wails actions available.
 	return true

@@ -1,0 +1,6 @@
+# StageBox additions to SDL built-in mappings (curated subset, not the full database).
+# Source: https://github.com/mdqinc/SDL_GameControllerDB
+# Revision: c1d5289a1f713b30a2c121e9fe6529d39360be0f (2026-10-02)
+# License: gamecontrollerdb-LICENSE.txt (zlib)
+# Windows 8BitDo Ultimate, VID 2dc8 / PID 3012. SDL button indices are zero based.
+03000000c82d00001230000000000000,8BitDo Ultimate,a:b0,b:b1,back:b10,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,dpup:h0.1,guide:b12,leftshoulder:b6,leftstick:b13,lefttrigger:b8,leftx:a0,lefty:a1,paddle1:b2,paddle2:b5,rightshoulder:b7,rightstick:b14,righttrigger:b9,rightx:a3,righty:a4,start:b11,x:b3,y:b4,platform:Windows,

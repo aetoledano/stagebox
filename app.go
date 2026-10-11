@@ -39,7 +39,7 @@ type App struct {
 	thumbnailDir       string
 	thumbnailURLPrefix string
 	loadingWallpaper   string
-	pad                *controller.XInputBridge
+	pad                *controller.ControllerBridge
 	keyboard           *controller.KeyboardBridge
 	btStatus           string
 	btConnected        bool
@@ -92,7 +92,7 @@ func (a *App) startup(ctx context.Context) {
 	a.soundInput = make(chan string, 16)
 	go a.watchSound()
 	go a.handleSoundInput()
-	a.pad = controller.StartXInputBridge(ctx, a.queueSoundInput)
+	a.pad = controller.StartControllerBridge(ctx, a.queueSoundInput, a.config.DownloadControllerDatabase)
 	a.keyboard = controller.StartKeyboardBridge(ctx, a.queueSoundInput)
 
 	go a.watchBluetooth()

@@ -7,7 +7,7 @@ The project can be inspected and partially built on Linux, but the production ru
 ## Features
 
 - Fullscreen game library with cached cover thumbnails.
-- Controller and keyboard navigation for the launcher UI.
+- SDL3 controller navigation with normalized buttons, hotplug detection, and legacy input fallback, plus keyboard navigation.
 - Per-game launch metadata through simple `lc.json` files.
 - A shared launch-status screen for local and Steam games, with dismissible launch errors.
 - Matching space-themed artwork behind the library cards and a native loading fallback during game transitions.
@@ -16,6 +16,7 @@ The project can be inspected and partially built on Linux, but the production ru
 - Optional delayed key press for games that open an intermediate launcher.
 - Automatically lists installed Steam games alongside local games, with cached Steam artwork and game-specific advanced process tracking.
 - Steam button that opens Steam if installed or downloads the installer when missing.
+- RetroBat button that opens its EmulationStation frontend, or downloads and starts the official installer when missing.
 - Sound Settings for selecting the Windows default output device, with current-output highlighting, master volume, and mute controls.
 - Bluetooth status indicator and Windows pairing wizard integration.
 - Wi-Fi scan/connect overlay for kiosk setups without the Windows shell.
@@ -86,11 +87,31 @@ If you only want to run the app without installing it as the Windows shell, plac
 ```json
 {
   "gamesRoot": "C:\\games",
-  "debug": true
+  "debug": true,
+  "retrobatPath": "D:\\RetroBat",
+  "downloadControllerDatabase": false
 }
 ```
 
 `gamesRoot` points to the folder StageBox scans for local games. Installed Steam games are discovered separately, including Steam library folders on other drives; their editable launch settings are generated under `gamesRoot/SteamGames`. `debug` changes the exit behavior: in debug mode, the exit menu item quits the current launcher process; in normal mode, it exits back to Windows and coordinates with the service loop.
+
+`retrobatPath` is optional and accepts the RetroBat installation folder or the full path to `RetroBat.exe`. Restart StageBox after editing `config.json`.
+
+Set optional `downloadControllerDatabase` to `true` to download the community SDL controller database automatically when `assets/gamecontrollerdb.txt` beside StageBox is missing. It defaults to `false`. Existing databases and manual edits are preserved; restart StageBox after changing the option.
+
+## RetroBat
+
+Use the RetroBat-logo button beside Steam in the top bar. Controller/keyboard navigation reaches it like the other topbar buttons. If RetroBat is missing, StageBox downloads the latest stable Windows 64-bit setup from [RetroBat's official releases](https://github.com/RetroBat-Official/retrobat/releases/latest), shows download progress, and runs the installer. Finish setup using the [official installation guide](https://wiki.retrobat.org/get-started/installation-and-first-startup), then press the button again to open RetroBat. Installation discovery refreshes on each press, including installations such as `D:\RetroBat`, so a StageBox restart is not required after setup. For a portable/custom location that is not found automatically, set `retrobatPath` in StageBox's `config.json` and restart StageBox.
+
+With no configured path, StageBox checks `RETROBAT_PATH`, current-user and machine Windows App Paths/uninstall records in both registry views, `RetroBat` folders at the root of fixed/removable local drives (including `C:\RetroBat` and `D:\RetroBat`), Program Files/Local AppData, a `RetroBat` folder beside `stagebox.exe`, and `RetroBat.exe` on `PATH`. Network/CD drives and recursive disk scans are excluded. Discovered files must exist; stale registry entries are skipped. An explicit config/environment path is authoritative: a missing installation offers setup instead of opening another installation, while invalid executable names and access errors show a dismissible error.
+
+The installer is saved as `cache/installers/RetroBatSetup.exe`. Downloads use temporary files and are checked against the official release's file size and Windows executable header before setup starts; failures remove partial files and preserve a previous completed download. Setup starts directly, with the same Explorer fallback used for Steam installers. StageBox stays visible while setup runs independently; the cursor is made visible for setup. Installation is interactive and does not automatically launch RetroBat afterward.
+
+StageBox starts an installed `RetroBat.exe` from its installation folder, pauses launcher navigation, restores the normal cursor, and hides its window. RetroBat manages the ROM library, themes, overlays, emulator setup, controller mappings and emulator exit hotkeys. Returning from a game to EmulationStation keeps StageBox hidden; quit RetroBat to return to StageBox with fullscreen, focus, and input restored. Download, setup-start and session failures use the existing launch-error panel.
+
+The Windows session tracks the launched process group, including EmulationStation and inherited emulator children, rather than ending when the bootstrap executable exits or the frontend hides during gameplay. A lingering child/helper keeps the session active until it exits. Processes launched by an unrelated broker, with elevation, or outside the group are not guaranteed to be tracked. If this RetroBat installation is already running outside StageBox, quit it first; StageBox refuses an untracked handoff. Closing StageBox leaves RetroBat running. StageBox's Start+Back game-kill action does not terminate RetroBat; use RetroBat's own exit controls.
+
+This integration launches the RetroBat frontend; it does not import ROM cards. StageBox uses SDL3 for its own controller input. Opt-in virtual input for native games is a separate later step.
 
 ## Game Library Format
 
@@ -216,6 +237,24 @@ Steam game tracking attaches after Steam creates the game process. Games started
 
 Game crash-reporting helpers remain tracked for Start+Back cleanup, but their windows and process lifetime do not count as the game opening or staying active. A Crashpad helper can be present during normal play; its presence alone is not a crash diagnosis.
 
+## Controller Input
+
+StageBox uses SDL3's Gamepad API on Windows amd64. The official SDL 3.4.18 runtime and license are bundled into `stagebox.exe` and extracted to versioned files under `cache/assets`, so deploying the executable does not require installing SDL or copying another DLL. The runtime's built-in mappings handle supported Xbox, PlayStation, Nintendo and other controllers. StageBox also embeds a small [mapping supplement](internal/platform/controller/sdl/gamecontrollerdb.txt), currently adding the Windows 8BitDo Ultimate `2dc8:3012` profile with Select on raw button 10 and Start on raw button 11 (zero based).
+
+The main editable database is `assets/gamecontrollerdb.txt` **beside `stagebox.exe`**, for example `C:\launcher\assets\gamecontrollerdb.txt`. With `downloadControllerDatabase: true` in `config.json`, StageBox downloads the full list from [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB/blob/master/gamecontrollerdb.txt) in the background on startup only if this file is missing, and places its license in the same assets folder. Existing files are never overwritten, including a file you create while a download is in progress. Download failures keep local/bundled mappings and are logged. To fetch a fresh list, back up your edits, remove the assets database, and restart with the option enabled.
+
+Whether downloading is enabled or not, StageBox loads your assets database and watches for edits. Valid changes normally take effect in about one to two seconds without restarting, including new files, replaced files and deleted entries. Save as UTF-8 and use `platform:Windows` entries; invalid or unreadable changes keep the previous mappings. Reloading briefly rescans SDL controllers, releases held mapped keys/mouse buttons, and waits for neutral controller input before resuming. A Batocera/Linux entry can have a different GUID and button/axis layout even for the same controller; connection mode and firmware can also affect the matching profile.
+
+The older `gamecontrollerdb.txt` directly beside the executable is also loaded and watched. Precedence is SDL built-ins, StageBox supplement, executable-adjacent database, then **assets database**. Your edits in assets take final precedence. The optional full community database can replace existing profiles as well as add missing ones; test both of your controllers after enabling it. Edit the repository supplement and rebuild to change shipped defaults; the extracted cache copy is generated.
+
+Buttons use physical positions: the bottom face button confirms and the right face button goes back. These correspond to Xbox A/B, PlayStation Cross/Circle, and Nintendo B/A. D-pad/sticks, Start/Back, existing per-game keyboard/mouse mappings, Bluetooth-pairing controls, Steam dialog pointer helpers and right-stick launcher volume keep their existing actions.
+
+One selected controller drives StageBox, retained until it disconnects. The controller indicator counts opened SDL gamepads. Detection refreshes while the launcher is paused for games; losing/changing a device releases mapped keys/buttons, resets repeat/kill state and requires neutral sticks, released triggers and buttons before accepting the replacement controller. Returning from a game still uses the existing launcher foreground/neutral gate.
+
+If SDL cannot load/initialize, StageBox logs the error and uses XInput/WinMM. When SDL has no mapped gamepads, the same native fallback can still handle a legacy joystick. SDL and native input are not combined for the same navigation frame. For troubleshooting, start StageBox with `STAGEBOX_CONTROLLER_BACKEND=legacy` to use the prior backend; remove that environment variable to use SDL3 again. SDL's device inventory can still include distinct virtual devices created by other controller software; no universal physical/virtual identity merge is claimed.
+
+SDL reads controllers, including native XInput controllers, for StageBox and its existing keyboard/mouse mappings. Games still read their controllers independently through Windows or their own input libraries. StageBox's SDL bridge does not forward the controller to the game, create a virtual Xbox controller or add `enableVirtualInput`. Steam and RetroBat continue managing their game input; native-game virtual translation and the hold-A card menu belong to step 3.
+
 ## How To Use
 
 1. Start StageBox.
@@ -226,6 +265,7 @@ Game crash-reporting helpers remain tracked for Start+Back cleanup, but their wi
 6. Open the tools menu for Bluetooth pairing, Wi-Fi networks, reloading games, opening the games folder, restart, power off, or exiting the launcher.
 7. Use the Steam button in the top bar to open Steam Big Picture for controller navigation. If Steam is not found, StageBox downloads and starts the official Steam installer.
 8. Open Sound Settings from the tools menu to choose an output device. While StageBox is focused, right-stick up/down adjusts volume; the speaker indicator and temporary volume bar show the current level. Right-stick volume control is disabled during games. Keyboard multimedia volume/mute keys work system-wide, including games, without bringing StageBox to the foreground.
+9. Use the RetroBat button in the top bar to open your configured RetroBat installation. Quit RetroBat to return to StageBox.
 
 The topbar Steam session follows existing and replacement clients from the same executable path and Windows session. After Big Picture appears, StageBox returns after 750ms without Big Picture/game windows when no tracked game process remains; full Steam shutdown uses a 1.5-second debounce. Windowless live game processes retain a ten-second handoff grace. Closing to the tray or exiting Big Picture into desktop Steam also returns to StageBox. Remaining client windows are hidden and StageBox reclaims foreground focus before input resumes. Sign-in/update windows remain usable during startup, with a two-minute limit if a live client shows no interface. Steam is not placed in a Job Object and its kill-shortcut behavior is unchanged. Mid-session client restarts or completely empty game handoffs taking longer than the short debounce, changed Steam window identities, or games started through unrelated processes may need further tracking adjustments.
 
@@ -267,7 +307,12 @@ npm --prefix frontend run preview
 - If a game opens another launcher and StageBox returns too early, try `"trackMode": "processTree"`.
 - If Wi-Fi scanning fails in kiosk mode, rerun `install-stagebox.ps1` as Administrator and inspect `svc.log`.
 - If the screen is black after shell startup, inspect `stagebox.log` for frontend boot and render markers.
+- For controller problems, inspect `controller backend SDL3 initialized`, `SDL3 controller mappings loaded`, `SDL3 joystick discovered`, `SDL3 gamepad mapping`, `SDL3 gamepad connected/disconnected`, and `controller input device changed` in `stagebox.log`. Joystick discovery includes name, VID/PID and mapped status, even when the device falls back to native input. SDL extraction/load/init/discovery errors log the fallback reason. Check the cache is writable, try the legacy backend, and verify disconnect/reconnect plus game return on the target Windows machine.
 
 ## Publishing Notes
 
 Before making the repository public, add a top-level `LICENSE` file and update this section with the selected license. The bundled Nunito font files include their own SIL Open Font License text under `frontend/src/assets/fonts/OFL.txt`. The Steam vector icon comes from [Simple Icons](https://github.com/simple-icons/simple-icons/blob/develop/icons/steam.svg), distributed under [CC0](https://github.com/simple-icons/simple-icons/blob/develop/LICENSE.md).
+
+The bundled [SDL3 runtime](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18) is distributed under its zlib license, retained at `internal/platform/controller/sdl/windows_amd64/LICENSE.txt` and extracted beside its cached runtime. Release URLs and verified SHA-256 digests are recorded in `internal/platform/controller/sdl/README.md`.
+
+The curated mapping supplement comes from [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) under its zlib license, retained at `internal/platform/controller/sdl/gamecontrollerdb-LICENSE.txt` and extracted beside the cached supplement. Its pinned source revision is recorded in the supplement and `sdl/README.md`.

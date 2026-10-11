@@ -176,7 +176,8 @@
   padding: 0;
 }
 
-.steam-icon {
+.steam-icon,
+.retrobat-icon {
   display: block;
   width: 24px;
   height: 24px;

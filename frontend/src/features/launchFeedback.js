@@ -139,6 +139,7 @@ function renderStatus(payload) {
   overlay.classList.remove("launch-feedback-error");
   heading.textContent = payload.name || "Launching game";
   eyebrow.textContent = payload.stage === "updating" ? "Updating game" :
+    payload.stage === "installer" ? "RetroBat setup" :
     payload.stage === "setup" ? "Steam update" :
     payload.stage === "steam-opening" ? "Launching Steam" :
     payload.stage === "steam" ? "Starting Steam" : "Launching game";
