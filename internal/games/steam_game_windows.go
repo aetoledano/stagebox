@@ -23,30 +23,31 @@ var procIsProcessInJob = windows.NewLazySystemDLL("kernel32.dll").NewProc("IsPro
 // Steam's singleton can hand the request to an existing client. Attach only
 // this game's processes to a fresh job, never the Steam client/request process.
 type steamGameProcess struct {
-	mu           sync.Mutex
-	game         *GameData
-	tracker      steamTracker
-	clientUI     *steamTracker
-	uiSettlesAt  time.Time
-	uiWarning    bool
-	job          windows.Handle
-	jobName      string
-	request      *exec.Cmd
-	requestExit  <-chan error
-	startedPID   chan int
-	pidPublished bool
-	killed       atomic.Bool
-	onStatus     func(SteamLaunchStatus)
+	mu               sync.Mutex
+	game             *GameData
+	tracker          steamTracker
+	clientUI         *steamTracker
+	uiSettlesAt      time.Time
+	uiWarning        bool
+	job              windows.Handle
+	jobName          string
+	request          *exec.Cmd
+	requestExit      <-chan error
+	startedPID       chan int
+	pidPublished     bool
+	killed           atomic.Bool
+	onStatus         func(SteamLaunchStatus)
+	updateOnly       bool
+	onUIReady        func()
+	onDialog         func(uint32, uintptr)
+	uiReady          bool
+	detailsRequested bool
+	setup            steamInteractiveState
 }
 
-func startSteamGameProcess(game *GameData, onStatus func(SteamLaunchStatus)) (gameProcess, error) {
+func startSteamGameProcess(game *GameData, opts LaunchOptions) (gameProcess, error) {
 	stopSteamUIBackgrounding()
-	if err := validateSteamGame(game); err != nil {
-		return nil, err
-	}
-	// Cold-starting Steam and requesting a game in one invocation can race
-	// Steam API initialization in older games. Start/register the client first.
-	if err := ensureSteamClientReady(game, onStatus); err != nil {
+	if err := validateSteamGameForUpdate(game, true); err != nil {
 		return nil, err
 	}
 	var sessionID uint32
@@ -64,16 +65,19 @@ func startSteamGameProcess(game *GameData, onStatus func(SteamLaunchStatus)) (ga
 	}
 	p := &steamGameProcess{
 		game: game, job: job, jobName: jobName, startedPID: make(chan int, 1),
-		tracker:  steamTracker{exe: filepath.Clean(game.Executable), sessionID: sessionID, processes: map[uint32]*steamTrackedProcess{}},
-		clientUI: &steamTracker{exe: filepath.Clean(game.Executable), sessionID: sessionID, processes: map[uint32]*steamTrackedProcess{}},
+		tracker:    steamTracker{exe: filepath.Clean(game.Executable), sessionID: sessionID, processes: map[uint32]*steamTrackedProcess{}},
+		clientUI:   &steamTracker{exe: filepath.Clean(game.Executable), sessionID: sessionID, processes: map[uint32]*steamTrackedProcess{}},
+		updateOnly: opts.SteamUpdateOnly,
+		onUIReady:  opts.OnSteamUIReady, onDialog: opts.OnSteamDialog,
+		setup: steamInteractiveState{steamSessionState: steamSessionState{started: time.Now()}},
 	}
-	p.cleanStartupUI()
 	// Attach any already-running copy before sending the game's activation URL.
 	if _, _, err := p.sampleLocked(); err != nil {
 		p.Close()
 		return nil, err
 	}
-	cmd := exec.Command(game.Executable, steamGameLaunchArgs(game.SteamAppID)...)
+	args := steamCardLaunchArgs(game.SteamAppID, opts.SteamUpdateOnly)
+	cmd := exec.Command(game.Executable, args...)
 	cmd.Dir = filepath.Dir(game.Executable)
 	if err := cmd.Start(); err != nil {
 		p.Close()
@@ -83,8 +87,11 @@ func startSteamGameProcess(game *GameData, onStatus func(SteamLaunchStatus)) (ga
 	exit := make(chan error, 1)
 	p.requestExit = exit
 	go func() { exit <- cmd.Wait() }()
-	lgx.Infof("Steam game requested appID=%d name=%q install=%q requestPID=%d job=%q", game.SteamAppID, game.Name, game.StartsOn, cmd.Process.Pid, jobName)
-	p.logClientSnapshot("game-requested")
+	if opts.SteamUpdateOnly {
+		lgx.Infof("Steam interactive update interface requested appID=%d requestPID=%d; no Play queued", game.SteamAppID, cmd.Process.Pid)
+	} else {
+		lgx.Infof("Steam game requested appID=%d name=%q install=%q requestPID=%d args=%q job=%q; single combined activation", game.SteamAppID, game.Name, game.StartsOn, cmd.Process.Pid, args, jobName)
+	}
 	return p, nil
 }
 
@@ -113,26 +120,19 @@ func (p *steamGameProcess) Wait() (result error) {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		lgx.Infof("Steam game tracking completed appID=%d killed=%v err=%v", p.game.SteamAppID, p.killed.Load(), result)
-		p.logClientSnapshot("game-ended")
 	}()
 	state := steamGameSessionState{started: time.Now()}
-	if p.game.SteamNeedsUpdate {
-		// Preflight already confirmed an update. Steam can rewrite/replace its
-		// manifest during startup; retain that evidence until a readable sample
-		// reports completion, rather than falling back to the game timeout.
-		state.observeUpdate(state.started, steamGameState{flags: 2})
-	}
 	var failures int
 	var previous []uint32
 	var previousVisible bool
-	var requestErr error
 	requestExit := p.requestExit
 	var lastStatus SteamLaunchStatus
-	var lastUpdateLog time.Time
+	var lastUpdateLog, updateAt time.Time
+	var lastUpdate steamGameState
 	var manifestError string
 	for {
 		select {
-		case requestErr = <-requestExit:
+		case requestErr := <-requestExit:
 			lgx.Debugf("Steam game activation exited appID=%d err=%v; waiting for game processes", p.game.SteamAppID, requestErr)
 			requestExit = nil
 		default:
@@ -141,6 +141,10 @@ func (p *steamGameProcess) Wait() (result error) {
 		p.cleanStartupUI()
 		pids, visible, err := p.sampleLocked()
 		gamePIDs := p.activityPIDs(pids)
+		var setupFinished bool
+		if err == nil && !state.sawWindow && !visible {
+			setupFinished, err = p.sampleInteractiveUI(len(gamePIDs))
+		}
 		if err == nil && !p.pidPublished {
 			// Publish the game's PID for focusing, not the Steam activation PID.
 			for _, pid := range gamePIDs {
@@ -152,7 +156,6 @@ func (p *steamGameProcess) Wait() (result error) {
 					close(p.startedPID)
 					p.pidPublished = true
 					lgx.Infof("Steam game first window appID=%d pid=%d", p.game.SteamAppID, pid)
-					p.logClientSnapshot("game-window")
 					break
 				}
 			}
@@ -170,6 +173,10 @@ func (p *steamGameProcess) Wait() (result error) {
 			continue
 		}
 		failures = 0
+		if setupFinished {
+			lgx.Infof("Steam interactive UI ended appID=%d updateOnly=%v gameRequested=%v", p.game.SteamAppID, p.updateOnly, !p.updateOnly)
+			return nil
+		}
 		if !state.sawWindow && !visible {
 			if update, err := readSteamGameState(p.game); err == nil {
 				if manifestError != "" {
@@ -177,14 +184,18 @@ func (p *steamGameProcess) Wait() (result error) {
 					manifestError = ""
 				}
 				now := time.Now()
-				state.observeUpdate(now, update)
+				if updateAt.IsZero() || update != lastUpdate {
+					updateAt = now
+				}
+				lastUpdate = update
+				updateWait := update.needsUpdate() && update.flags&512 == 0
 				status := update.launchStatus()
-				if status != lastStatus || (state.updateWait && now.Sub(lastUpdateLog) >= 30*time.Second) {
+				if status != lastStatus || (updateWait && now.Sub(lastUpdateLog) >= 30*time.Second) {
 					var updateIdle time.Duration
-					if state.updateWait {
-						updateIdle = now.Sub(state.updateAt).Round(time.Second)
+					if updateWait {
+						updateIdle = now.Sub(updateAt).Round(time.Second)
 					}
-					lgx.Infof("Steam game startup status appID=%d stage=%s flags=%d downloaded=%d/%d staged=%d/%d updateWait=%v updateIdle=%s message=%q", p.game.SteamAppID, status.Stage, update.flags, update.downloaded, update.downloadTotal, update.staged, update.stageTotal, state.updateWait, updateIdle, status.Message)
+					lgx.Infof("Steam game startup status appID=%d stage=%s flags=%d downloaded=%d/%d staged=%d/%d updateWait=%v updateIdle=%s message=%q", p.game.SteamAppID, status.Stage, update.flags, update.downloaded, update.downloadTotal, update.staged, update.stageTotal, updateWait, updateIdle, status.Message)
 					lastUpdateLog = now
 				}
 				if status != lastStatus {
@@ -195,7 +206,7 @@ func (p *steamGameProcess) Wait() (result error) {
 				}
 			} else if err.Error() != manifestError {
 				manifestError = err.Error()
-				lgx.Warnf("Steam game update manifest unavailable appID=%d updateWait=%v err=%v; retaining last known startup state", p.game.SteamAppID, state.updateWait, err)
+				lgx.Warnf("Steam game update manifest unavailable appID=%d err=%v; retaining last known startup state", p.game.SteamAppID, err)
 			}
 		}
 		if !slices.Equal(previous, pids) || previousVisible != visible {
@@ -206,16 +217,14 @@ func (p *steamGameProcess) Wait() (result error) {
 		if p.killed.Load() && len(pids) == 0 {
 			return nil
 		}
-		if finished, neverStarted := state.finished(time.Now(), visible, len(gamePIDs)); finished {
-			if neverStarted {
-				if state.updateWait {
-					return fmt.Errorf("Steam has not reported update progress for %s; check its download queue or update dialogs, then retry", steamGameUpdateGrace)
-				}
-				if state.lastUpdate.flags&512 != 0 {
-					return errors.New("Steam update is paused; resume the download in Steam, then retry")
-				}
-				return fmt.Errorf("Steam game did not open within %s (activation error: %v); check Steam sign-in or launch dialogs", steamGameStartGrace, requestErr)
-			}
+		// Interactive setup is timed by Steam UI lifetime, not the ordinary
+		// two-minute game-window/update budget. After the first selected-game
+		// window, the existing game-only lifecycle takes over.
+		if !state.sawWindow && !visible {
+			time.Sleep(steamPollInterval)
+			continue
+		}
+		if finished, _ := state.finished(time.Now(), visible, len(gamePIDs)); finished {
 			if wait := waitAfterExitDuration(p.game); wait > 0 {
 				time.Sleep(wait)
 			}
@@ -225,22 +234,12 @@ func (p *steamGameProcess) Wait() (result error) {
 	}
 }
 
-// Called during setup or under p.mu. Diagnostics own their handles and never
-// activate Steam or change window visibility.
-func (p *steamGameProcess) logClientSnapshot(stage string) {
-	tracker := steamTracker{exe: p.tracker.exe, sessionID: p.tracker.sessionID, processes: map[uint32]*steamTrackedProcess{}}
-	defer tracker.close()
-	if _, _, err := tracker.sample(); err != nil {
-		lgx.Warnf("Steam readiness snapshot appID=%d stage=%s sampleErr=%v", p.game.SteamAppID, stage, err)
-	}
-	registration, reason, _ := registeredSteamClient(&tracker)
-	logSteamClientSnapshot(&tracker, p.game.SteamAppID, stage, 0, registration, reason)
-}
-
-// Called during setup or under p.mu. The cleanup lives through bootstrap,
-// download and game startup, plus a brief settling period after the first
-// game window. It does not participate in game correlation or termination.
+// Called under p.mu after the first game window. Cleanup covers the brief
+// client-minimization settling period. It does not participate in game correlation or termination.
 func (p *steamGameProcess) cleanStartupUI() {
+	if !p.pidPublished {
+		return
+	}
 	if p.clientUI == nil {
 		return
 	}
@@ -263,6 +262,11 @@ func (p *steamGameProcess) Kill() error {
 		return fmt.Errorf("inspect Steam game before stopping: %w", err)
 	}
 	if len(pids) == 0 {
+		if p.updateOnly {
+			// Download-only has no Play request to cancel or queue later.
+			p.killed.Store(true)
+			return nil
+		}
 		return errors.New("Steam game is still starting; no game process is available to stop yet")
 	}
 	var failures []error

@@ -3,8 +3,25 @@ package games
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestSteamConfigRejectsRemovedSetupFieldWithoutRewriting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "42-lc.json")
+	manual := []byte(`{"steamAppId":42,"steamSetup":false,"showCursor":false}`)
+	if err := os.WriteFile(path, manual, 0600); err != nil {
+		t.Fatal(err)
+	}
+	game := &GameData{SteamAppID: 42, steamConfigPath: path}
+	if err := applySteamConfig(game); err == nil || !strings.Contains(err.Error(), `unknown field "steamSetup"`) {
+		t.Fatalf("removed setting was not rejected: %v", err)
+	}
+	actual, err := os.ReadFile(path)
+	if err != nil || string(actual) != string(manual) {
+		t.Fatalf("invalid manual config was rewritten: %s %v", actual, err)
+	}
+}
 
 func TestSteamConfigsPreserveEditsAndReloadForLaunch(t *testing.T) {
 	root, steam := t.TempDir(), t.TempDir()

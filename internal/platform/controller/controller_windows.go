@@ -200,21 +200,22 @@ func loadLegacyJoystick() error {
 }
 
 type XInputBridge struct {
-	ctx            context.Context
-	paused         atomic.Int32 // 0 = running, 1 = paused
-	resetInput     atomic.Bool
-	quit           chan struct{}
-	mouse          atomic.Int32 // 0 = launcher events, 1 = OS cursor mode
-	keyboard       atomic.Int32 // 0 = launcher events, 1 = pairing keyboard mode
-	gameKeys       atomic.Int32 // 0 = launcher events, 1 = game key-map mode
-	inputTargetPID atomic.Uint32
-	volumeAction   func(string)
-	keyBindings    []gameKeyBinding
-	keyBindingsMu  sync.Mutex
-	activeGameKeys map[byte]bool
-	mouseStick     string
-	mouseStepX     int
-	mouseStepY     int
+	ctx               context.Context
+	paused            atomic.Int32 // 0 = running, 1 = paused
+	resetInput        atomic.Bool
+	quit              chan struct{}
+	mouse             atomic.Int32 // 0 = launcher events, 1 = OS cursor mode
+	keyboard          atomic.Int32 // 0 = launcher events, 1 = pairing keyboard mode
+	gameKeys          atomic.Int32 // 0 = launcher events, 1 = game key-map mode
+	inputTargetPID    atomic.Uint32
+	inputTargetWindow atomic.Uintptr
+	volumeAction      func(string)
+	keyBindings       []gameKeyBinding
+	keyBindingsMu     sync.Mutex
+	activeGameKeys    map[byte]bool
+	mouseStick        string
+	mouseStepX        int
+	mouseStepY        int
 	// Edge/hold state is owned by the polling loop.
 	prevButtons uint16
 	holdDir     string
@@ -251,7 +252,11 @@ func (b *XInputBridge) Resume() {
 }
 func (b *XInputBridge) EnableMouseMode() { b.EnableMouseModeForPID(0) }
 func (b *XInputBridge) EnableMouseModeForPID(pid uint32) {
+	b.EnableMouseModeForWindow(pid, 0)
+}
+func (b *XInputBridge) EnableMouseModeForWindow(pid uint32, window uintptr) {
 	b.inputTargetPID.Store(pid)
+	b.inputTargetWindow.Store(window)
 	b.gameKeys.Store(0)
 	b.keyboard.Store(0)
 	b.mouse.Store(1)
@@ -262,6 +267,7 @@ func (b *XInputBridge) DisableMouseMode() {
 	b.keyboard.Store(0)
 	b.gameKeys.Store(0)
 	b.inputTargetPID.Store(0)
+	b.inputTargetWindow.Store(0)
 	b.clearGameKeyMap()
 	b.mouseStick = ""
 	b.mouseStepX = 0
@@ -724,6 +730,17 @@ func (b *XInputBridge) loop() {
 }
 
 func (b *XInputBridge) handleMouseMode(gp xinputGamepad, buttons uint16, just func(uint16) bool) {
+	if pid := b.inputTargetPID.Load(); pid != 0 {
+		hwnd, _, _ := procKeyboardGetForegroundWindow.Call()
+		if window := b.inputTargetWindow.Load(); window != 0 && hwnd != window {
+			return
+		}
+		var foregroundPID uint32
+		procGetWindowThreadProcessID.Call(hwnd, uintptr(unsafe.Pointer(&foregroundPID)))
+		if foregroundPID != pid {
+			return
+		}
+	}
 	const (
 		stickDeadzone = 6500
 		maxStep       = 14
@@ -755,7 +772,9 @@ func (b *XInputBridge) handleMouseMode(gp xinputGamepad, buttons uint16, just fu
 		leftClick()
 	}
 	if just(XINPUT_GAMEPAD_B) {
-		FocusProcessWindow(b.inputTargetPID.Load())
+		if b.inputTargetWindow.Load() == 0 {
+			FocusProcessWindow(b.inputTargetPID.Load())
+		}
 		pressEscape()
 	}
 }

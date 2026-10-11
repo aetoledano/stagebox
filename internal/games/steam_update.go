@@ -37,11 +37,10 @@ func SteamUpdateNeeded(game *GameData) (bool, error) {
 }
 
 type SteamLaunchStatus struct {
-	Stage          string `json:"stage"`
-	Message        string `json:"message"`
-	Progress       int    `json:"progress"` // Current phase percentage; -1 when no measurable phase is reported.
-	NeedsUpdate    bool   `json:"needsUpdate"`
-	CanLeaveUpdate bool   `json:"canLeaveUpdate"`
+	Stage       string `json:"stage"`
+	Message     string `json:"message"`
+	Progress    int    `json:"progress"` // Current phase percentage; -1 when no measurable phase is reported.
+	NeedsUpdate bool   `json:"needsUpdate"`
 }
 
 func (s steamGameState) launchStatus() SteamLaunchStatus {

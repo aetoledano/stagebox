@@ -32,8 +32,8 @@ type App struct {
 	gamesMu            sync.RWMutex
 	gameSessionMu      sync.Mutex
 	gameSessionActive  bool
-	steamUpdateWaitID  uuid.UUID
-	steamUpdateCancel  context.CancelFunc
+	steamLaunchID      uuid.UUID
+	steamLaunchChoice  chan string
 	pairingMu          sync.Mutex
 	pairingActive      bool
 	thumbnailDir       string
@@ -253,6 +253,7 @@ func (a *App) beginGameSession(name string) bool {
 func (a *App) endGameSession() {
 	a.gameSessionMu.Lock()
 	a.gameSessionActive = false
+	a.steamLaunchID, a.steamLaunchChoice = uuid.Nil, nil
 	a.gameSessionMu.Unlock()
 }
 
@@ -268,14 +269,12 @@ func (a *App) Launch(id uuid.UUID) {
 		return
 	}
 	runtime.EventsEmit(a.ctx, "game:launch-begin", map[string]any{"id": game.ID.String()})
+	steamUpdateOnly := false
 	if game.SteamAppID != 0 {
-		prepared, err := a.prepareSteamCard(game)
+		prepared, updateOnly, err := a.prepareSteamCard(game)
 		if err != nil {
 			defer a.endGameSession()
 			if errors.Is(err, context.Canceled) && a.ctx.Err() == nil {
-				if uiErr := games.BackgroundSteamClient(a.ctx, game.Executable); uiErr != nil {
-					lgx.Warnf("Steam UI cleanup after leaving update failed: %v", uiErr)
-				}
 				a.endGameLaunchFeedback(game.ID.String(), game.Name, true)
 				a.bringBack()
 				a.focusAfterSteamSession()
@@ -286,11 +285,15 @@ func (a *App) Launch(id uuid.UUID) {
 			return
 		}
 		game = prepared
+		steamUpdateOnly = updateOnly
 	}
 
 	gameKeyMapActive := false
-	a.pauseKeyboardInput()
-	if a.pad != nil {
+	activateGameInput := func() {
+		a.pauseKeyboardInput()
+		if a.pad == nil {
+			return
+		}
 		if game.KeyMap != nil {
 			gameKeyMapActive = a.pad.EnableGameKeyMap(controller.GameKeyMap{
 				Buttons:          game.KeyMap.Buttons,
@@ -306,9 +309,14 @@ func (a *App) Launch(id uuid.UUID) {
 			a.pad.Pause()
 		}
 	}
+	// Steam owns navigation during client/game startup. Defer mappings until
+	// the selected game's actual window, and hand off on verified Steam UI.
+	if game.SteamAppID == 0 {
+		activateGameInput()
+	}
 
-	lgx.Infof("launch requested id=%s name=%q exe=%q dir=%q args=%q trackMode=%q advancedTracking=%v waitAfterExit=%.2f showCursor=%v keyMap=%v delayedKey=%v",
-		game.ID, game.Name, game.Executable, game.StartsOn, game.Args, game.TrackMode, game.AdvancedTracking, game.WaitAfterExitSeconds, game.ShowCursor, game.KeyMap != nil, game.DelayedKey != nil)
+	lgx.Infof("launch requested id=%s name=%q exe=%q dir=%q args=%q trackMode=%q advancedTracking=%v waitAfterExit=%.2f showCursor=%v keyMap=%v delayedKey=%v steamUpdateOnly=%v",
+		game.ID, game.Name, game.Executable, game.StartsOn, game.Args, game.TrackMode, game.AdvancedTracking, game.WaitAfterExitSeconds, game.ShowCursor, game.KeyMap != nil, game.DelayedKey != nil, steamUpdateOnly)
 
 	// Tell the frontend to pause gamepad loops, overlays, etc.
 	runtime.EventsEmit(a.ctx, "game:start", map[string]any{
@@ -321,15 +329,53 @@ func (a *App) Launch(id uuid.UUID) {
 			"stage": "starting", "message": "Starting game…", "progress": -1})
 	}
 
-	run := games.LaunchGameWithOptions(game, games.LaunchOptions{OnStatus: func(status games.SteamLaunchStatus) {
-		runtime.EventsEmit(a.ctx, "game:launch-status", map[string]any{"id": game.ID.String(), "name": game.Name,
-			"stage": status.Stage, "message": status.Message, "progress": status.Progress})
-		runtime.EventsEmit(a.ctx, "game:update-status", map[string]any{"id": game.ID.String(), "needsUpdate": status.NeedsUpdate})
-	}})
-	lgx.Debugf("launch session created id=%s name=%q lock=%q trackMode=%s", game.ID, game.Name, run.LockPath, run.TrackMode)
 	var startupMu sync.Mutex
 	startupEnded := false
-	onWindowReady := func() bool {
+	var dialogPID uint32
+	var dialogWindow uintptr
+	steamUIReady := func() {
+		startupMu.Lock()
+		defer startupMu.Unlock()
+		if startupEnded {
+			return
+		}
+		a.pauseLauncherInput()
+		a.emitGameFeedbackAndWait("game:steam-ui-ready", map[string]any{"id": game.ID.String()}, nil)
+		runtime.WindowHide(a.ctx)
+		cursor.RestoreSystemCursor()
+		cursor.ForceCursorVisible()
+	}
+	steamDialog := func(pid uint32, window uintptr) {
+		startupMu.Lock()
+		defer startupMu.Unlock()
+		if startupEnded || (dialogPID == pid && dialogWindow == window) {
+			return
+		}
+		dialogPID, dialogWindow = pid, window
+		if a.pad != nil {
+			if pid != 0 {
+				a.pad.EnableMouseModeForWindow(pid, window)
+			} else {
+				a.pad.DisableMouseMode()
+				a.pad.Pause()
+			}
+		}
+		if pid != 0 {
+			cursor.ForceCursorVisible()
+		}
+	}
+	run := games.LaunchGameWithOptions(game, games.LaunchOptions{
+		SteamUpdateOnly: steamUpdateOnly, OnSteamUIReady: steamUIReady, OnSteamDialog: steamDialog,
+		OnStatus: func(status games.SteamLaunchStatus) {
+			if game.SteamAppID != 0 {
+				status.Stage, status.Message, status.Progress = "steam-opening", "Launching Steam…", -1
+			}
+			runtime.EventsEmit(a.ctx, "game:launch-status", map[string]any{"id": game.ID.String(), "name": game.Name,
+				"stage": status.Stage, "message": status.Message, "progress": status.Progress})
+			runtime.EventsEmit(a.ctx, "game:update-status", map[string]any{"id": game.ID.String(), "needsUpdate": status.NeedsUpdate})
+		}})
+	lgx.Debugf("launch session created id=%s name=%q lock=%q trackMode=%s", game.ID, game.Name, run.LockPath, run.TrackMode)
+	onWindowReady := func(pid int) bool {
 		startupMu.Lock()
 		defer startupMu.Unlock()
 		if startupEnded {
@@ -339,6 +385,16 @@ func (a *App) Launch(id uuid.UUID) {
 			return false
 		}
 		runtime.WindowHide(a.ctx)
+		if game.SteamAppID != 0 {
+			if a.pad != nil {
+				a.pad.DisableMouseMode()
+			}
+			dialogPID, dialogWindow = 0, 0
+			activateGameInput()
+			if gameKeyMapActive && a.pad != nil {
+				a.pad.SetGameInputTargetPID(uint32(pid))
+			}
+		}
 		if game.ShowCursor {
 			cursor.ForceCursorVisible()
 		} else {
@@ -371,6 +427,9 @@ func (a *App) Launch(id uuid.UUID) {
 		err := <-run.Done
 		startupMu.Lock()
 		startupEnded = true
+		if a.pad != nil && game.SteamAppID != 0 && dialogPID != 0 {
+			a.pad.DisableMouseMode()
+		}
 		startupMu.Unlock()
 		if err != nil {
 			lgx.Errorf("launch session ended with error id=%s name=%q err=%v", game.ID, game.Name, err)
@@ -445,13 +504,13 @@ func (a *App) emitGameFeedbackAndWait(event string, payload map[string]any, exit
 	}
 }
 
-func (a *App) handleGameWindowReady(game *games.GameData, pidCh <-chan int, exited <-chan struct{}, gameKeyMapActive bool, onReady func() bool) {
+func (a *App) handleGameWindowReady(game *games.GameData, pidCh <-chan int, exited <-chan struct{}, gameKeyMapActive bool, onReady func(int) bool) {
 	go func() {
 		pid, ok := <-pidCh
 		if !ok || pid <= 0 {
 			return
 		}
-		if onReady != nil && !onReady() {
+		if onReady != nil && !onReady(pid) {
 			return
 		}
 

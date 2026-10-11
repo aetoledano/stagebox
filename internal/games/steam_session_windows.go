@@ -12,16 +12,21 @@ import (
 )
 
 var (
-	procSteamGetWindowText = windows.NewLazySystemDLL("user32.dll").NewProc("GetWindowTextW")
-	procSteamGetClassName  = windows.NewLazySystemDLL("user32.dll").NewProc("GetClassNameW")
-	steamSessionUICallback = windows.NewCallback(inspectSteamSessionWindow)
+	procSteamGetWindowText       = windows.NewLazySystemDLL("user32.dll").NewProc("GetWindowTextW")
+	procSteamGetClassName        = windows.NewLazySystemDLL("user32.dll").NewProc("GetClassNameW")
+	procSteamGetForegroundWindow = windows.NewLazySystemDLL("user32.dll").NewProc("GetForegroundWindow")
+	steamSessionUICallback       = windows.NewCallback(inspectSteamSessionWindow)
 )
 
 type steamClientUIActivity struct {
-	visible       bool
-	bigPicture    bool
-	game          bool
-	gameProcesses int
+	visible             bool
+	bigPicture          bool
+	game                bool
+	gameProcesses       int
+	dialogPID           uint32
+	dialogWindow        uintptr
+	dialog              bool
+	minimizedBigPicture bool
 }
 
 type steamSessionWindowSearch struct {
@@ -51,11 +56,6 @@ func inspectSteamSessionWindow(hwnd uintptr, parameter uintptr) uintptr {
 	if process == nil || !process.alive {
 		return 1
 	}
-	visible, _, _ := procIsWindowVisible.Call(hwnd)
-	iconic, _, _ := procSteamIsIconic.Call(hwnd)
-	if visible == 0 || iconic != 0 {
-		return 1
-	}
 	// Recheck the retained handle so a reused PID cannot sustain the session.
 	if err := process.refresh(); err != nil {
 		search.err = fmt.Errorf("verify Steam window owner pid=%d: %w", pid, err)
@@ -64,8 +64,10 @@ func inspectSteamSessionWindow(hwnd uintptr, parameter uintptr) uintptr {
 	if !process.alive {
 		return 1
 	}
+	visible, _, _ := procIsWindowVisible.Call(hwnd)
+	iconic, _, _ := procSteamIsIconic.Call(hwnd)
 	if !process.client && !strings.EqualFold(filepath.Base(process.path), "steamwebhelper.exe") {
-		if !steamBackgroundHelper(process.path) {
+		if visible != 0 && iconic == 0 && !steamBackgroundHelper(process.path) {
 			search.activity.game = true
 		}
 		return 1
@@ -77,9 +79,24 @@ func inspectSteamSessionWindow(hwnd uintptr, parameter uintptr) uintptr {
 	}
 	var class [256]uint16
 	procSteamGetClassName.Call(hwnd, uintptr(unsafe.Pointer(&class[0])), uintptr(len(class)))
+	windowClass, windowTitle := windows.UTF16ToString(class[:]), windows.UTF16ToString(title[:])
+	bigPicture := steamBigPictureWindow(windowClass, windowTitle)
+	if iconic != 0 && bigPicture {
+		search.activity.minimizedBigPicture = true
+	}
+	if visible == 0 || iconic != 0 {
+		return 1
+	}
 	search.activity.visible = true
-	if steamBigPictureWindow(windows.UTF16ToString(class[:]), windows.UTF16ToString(title[:])) {
+	if steamBigPictureWindow(windowClass, windowTitle) {
 		search.activity.bigPicture = true
+	} else if strings.EqualFold(windowClass, "#32770") || !strings.EqualFold(strings.TrimSpace(windowTitle), "Steam") {
+		search.activity.dialog = true
+		// Only a verified Steam-owned foreground dialog gets pointer input.
+		foreground, _, _ := procSteamGetForegroundWindow.Call()
+		if foreground == hwnd {
+			search.activity.dialogPID, search.activity.dialogWindow = pid, hwnd
+		}
 	}
 	return 1
 }

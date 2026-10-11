@@ -91,75 +91,78 @@ func findSteamExecutable() string {
 	return games.FindSteamExecutable()
 }
 
-func (a *App) prepareSteamCard(game *games.GameData) (*games.GameData, error) {
+func (a *App) prepareSteamCard(game *games.GameData) (*games.GameData, bool, error) {
 	runtime.EventsEmit(a.ctx, "game:launch-status", map[string]any{"id": game.ID.String(), "name": game.Name,
 		"stage": "checking", "message": "Checking internet connection…", "progress": -1})
 	prepared, err := games.PrepareSteamGame(game)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if !network.InternetAvailable(a.ctx) {
-		return nil, fmt.Errorf("An internet connection is required to run this Steam game. Connect to the internet and try again.")
+		return nil, false, fmt.Errorf("An internet connection is required to run this Steam game. Connect to the internet and try again.")
 	}
 	if !controller.LauncherHasFocus() {
-		return nil, fmt.Errorf("Return to StageBox before launching the game.")
+		return nil, false, fmt.Errorf("Return to StageBox before launching the game.")
 	}
-	stage, message := "starting", "Starting game…"
+	runtime.EventsEmit(a.ctx, "game:update-status", map[string]any{"id": prepared.ID.String(), "needsUpdate": prepared.SteamNeedsUpdate})
+	updateOnly := false
 	if prepared.SteamNeedsUpdate {
-		stage, message = "updating", "Steam needs to update this game before it starts."
+		choice, err := a.chooseSteamLaunch(prepared)
+		if err != nil {
+			return nil, false, err
+		}
+		if !controller.LauncherHasFocus() {
+			return nil, false, fmt.Errorf("Return to StageBox before launching the game.")
+		}
+		updateOnly = choice == "update"
 	}
 	runtime.EventsEmit(a.ctx, "game:launch-status", map[string]any{"id": prepared.ID.String(), "name": prepared.Name,
-		"stage": stage, "message": message, "progress": -1})
-	runtime.EventsEmit(a.ctx, "game:update-status", map[string]any{"id": prepared.ID.String(), "needsUpdate": prepared.SteamNeedsUpdate})
-	for prepared.SteamNeedsUpdate {
-		if err := a.waitForSteamCardUpdate(prepared); err != nil {
-			if err != context.Canceled {
-				if uiErr := games.BackgroundSteamClient(a.ctx, prepared.Executable); uiErr != nil {
-					lgx.Warnf("Steam UI cleanup after update wait failed: %v", uiErr)
-				}
-				a.focusAfterSteamSession()
-			}
-			return nil, err
-		}
-		// Re-read manual overrides and validate the finished installation.
-		prepared, err = games.PrepareSteamGame(prepared)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return prepared, nil
+		"stage": "steam-opening", "message": "Launching Steam…", "progress": -1})
+	return prepared, updateOnly, nil
 }
 
-func (a *App) waitForSteamCardUpdate(game *games.GameData) error {
-	ctx, cancel := context.WithCancel(a.ctx)
-	defer cancel()
+func (a *App) chooseSteamLaunch(game *games.GameData) (string, error) {
+	choice := make(chan string, 1)
 	a.gameSessionMu.Lock()
-	a.steamUpdateWaitID, a.steamUpdateCancel = game.ID, cancel
+	a.steamLaunchID, a.steamLaunchChoice = game.ID, choice
 	a.gameSessionMu.Unlock()
-	err := games.WaitForSteamUpdate(ctx, game, func(status games.SteamLaunchStatus) {
-		runtime.EventsEmit(a.ctx, "game:launch-status", map[string]any{"id": game.ID.String(), "name": game.Name,
-			"stage": status.Stage, "message": status.Message, "progress": status.Progress, "canLeaveUpdate": status.CanLeaveUpdate})
-		runtime.EventsEmit(a.ctx, "game:update-status", map[string]any{"id": game.ID.String(), "needsUpdate": status.NeedsUpdate})
-	})
-	// Serialize accepting Back with committing the update-to-launch handoff.
-	a.gameSessionMu.Lock()
-	if err == nil {
-		err = ctx.Err()
+	defer func() {
+		a.gameSessionMu.Lock()
+		a.steamLaunchChoice = nil
+		a.gameSessionMu.Unlock()
+	}()
+	message := "Choose Open in Steam to update and launch this game in Big Picture. To download while playing something else, choose Update in Steam, select Steam's Update button, then exit Big Picture."
+	runtime.EventsEmit(a.ctx, "game:launch-status", map[string]any{"id": game.ID.String(), "name": game.Name,
+		"stage": "setup", "message": message, "progress": -1, "canOpenSteam": true, "canUpdateInSteam": true, "canGoBack": true})
+	select {
+	case action := <-choice:
+		if action == "back" {
+			return "", context.Canceled
+		}
+		return action, nil
+	case <-a.ctx.Done():
+		return "", a.ctx.Err()
 	}
-	a.steamUpdateWaitID, a.steamUpdateCancel = uuid.Nil, nil
-	a.gameSessionMu.Unlock()
-	return err
 }
 
-// LeaveSteamUpdate releases only StageBox's wait, never Steam's download.
-func (a *App) LeaveSteamUpdate(id uuid.UUID) error {
+// SteamLaunchAction accepts one current update-panel choice. Game cards all
+// use the same combined Steam activation; there is no live launch rescue.
+func (a *App) SteamLaunchAction(id uuid.UUID, action string) error {
 	a.gameSessionMu.Lock()
 	defer a.gameSessionMu.Unlock()
-	if id != a.steamUpdateWaitID || a.steamUpdateCancel == nil {
-		return fmt.Errorf("This game is no longer waiting for an update")
+	if !a.gameSessionActive || id != a.steamLaunchID || a.steamLaunchChoice == nil {
+		return fmt.Errorf("This Steam launch choice is no longer active")
 	}
-	a.steamUpdateCancel()
-	return nil
+	if action != "steam" && action != "update" && action != "back" {
+		return fmt.Errorf("That action is unavailable for this game")
+	}
+	select {
+	case a.steamLaunchChoice <- action:
+		a.steamLaunchChoice = nil
+		return nil
+	default:
+		return fmt.Errorf("A Steam launch action is already pending")
+	}
 }
 
 func (a *App) SteamUpdateStates() map[string]bool {

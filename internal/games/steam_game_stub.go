@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func startSteamGameProcess(game *GameData, _ func(SteamLaunchStatus)) (gameProcess, error) {
+func startSteamGameProcess(game *GameData, _ LaunchOptions) (gameProcess, error) {
 	return nil, errors.New("Steam game launching is only implemented on Windows")
 }
 

@@ -18,11 +18,12 @@ func StartXInputBridge(ctx context.Context, volumeAction func(string)) *XInputBr
 func StartKeyboardBridge(ctx context.Context, volumeAction func(string)) *KeyboardBridge {
 	return nil
 }
-func (b *XInputBridge) Pause()                           {}
-func (b *XInputBridge) Resume()                          {}
-func (b *XInputBridge) EnableMouseMode()                 {}
-func (b *XInputBridge) EnableMouseModeForPID(pid uint32) {}
-func (b *XInputBridge) DisableMouseMode()                {}
+func (b *XInputBridge) Pause()                                              {}
+func (b *XInputBridge) Resume()                                             {}
+func (b *XInputBridge) EnableMouseMode()                                    {}
+func (b *XInputBridge) EnableMouseModeForPID(pid uint32)                    {}
+func (b *XInputBridge) EnableMouseModeForWindow(pid uint32, window uintptr) {}
+func (b *XInputBridge) DisableMouseMode()                                   {}
 func (b *XInputBridge) EnablePairingKeyboardModeForPID(pid uint32) {
 }
 func (b *XInputBridge) DisablePairingKeyboardMode() {}

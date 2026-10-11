@@ -29,8 +29,6 @@ export function KillRunning():Promise<void>;
 
 export function Launch(arg1:uuid.UUID):Promise<void>;
 
-export function LeaveSteamUpdate(arg1:uuid.UUID):Promise<void>;
-
 export function LoadGames():Promise<Record<uuid.UUID, games.GameData>>;
 
 export function OpenBluetoothPairing():Promise<void>;
@@ -52,6 +50,8 @@ export function SetSoundOutput(arg1:string):Promise<audio.Settings>;
 export function SetSoundSettingsOpen(arg1:boolean):Promise<void>;
 
 export function Shutdown():Promise<void>;
+
+export function SteamLaunchAction(arg1:uuid.UUID,arg2:string):Promise<void>;
 
 export function SteamUpdateStates():Promise<Record<string, boolean>>;
 

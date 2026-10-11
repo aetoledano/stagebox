@@ -87,7 +87,14 @@ func KillRunning() error {
 	return curProcess.Kill()
 }
 
-type LaunchOptions struct{ OnStatus func(SteamLaunchStatus) }
+type LaunchOptions struct {
+	OnStatus func(SteamLaunchStatus)
+	// All Steam games use one combined Big Picture/game activation.
+	// Update-only opens the selected library page without queuing Play.
+	SteamUpdateOnly bool
+	OnSteamUIReady  func()
+	OnSteamDialog   func(uint32, uintptr)
+}
 
 func LaunchGame(game *GameData) RunningGame {
 	return LaunchGameWithOptions(game, LaunchOptions{})
@@ -221,7 +228,7 @@ func publishLocalWindowPID(process gameProcess, ready chan<- int, exited <-chan 
 
 func startGameProcess(game *GameData, trackMode string, opts LaunchOptions) (gameProcess, error) {
 	if game.SteamAppID != 0 {
-		return startSteamGameProcess(game, opts.OnStatus)
+		return startSteamGameProcess(game, opts)
 	}
 	if game.AdvancedTracking {
 		return startAdvancedGameProcess(game)
