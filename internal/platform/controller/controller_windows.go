@@ -218,9 +218,7 @@ func StartControllerBridge(ctx context.Context, volumeAction func(string), downl
 		quit:         make(chan struct{}),
 		volumeAction: volumeAction,
 	}
-	if downloadDatabase {
-		go ensureControllerDatabase(ctx)
-	}
+	go ensureControllerDatabase(ctx, downloadDatabase)
 	go b.loop()
 	return b
 }

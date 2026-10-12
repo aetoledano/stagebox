@@ -21,7 +21,7 @@ type sdlBackend struct {
 	dll                                                             *windows.DLL
 	init, quit, setMainReady, setHint, getError, getVersion         *windows.Proc
 	pump, flush, getGamepads, free, open, close, connected          *windows.Proc
-	button, axis, name, ioFromFile, addMappings                     *windows.Proc
+	button, axis, name, addMappings                                 *windows.Proc
 	ioFromConstMem                                                  *windows.Proc
 	mapping, getJoysticks, joystickName, vendor, product, isGamepad *windows.Proc
 	gamepads                                                        map[uint32]uintptr
@@ -65,7 +65,7 @@ func openSDLBackend() (*sdlBackend, error) {
 		{"SDL_free", &s.free}, {"SDL_OpenGamepad", &s.open}, {"SDL_CloseGamepad", &s.close},
 		{"SDL_GamepadConnected", &s.connected}, {"SDL_GetGamepadButton", &s.button},
 		{"SDL_GetGamepadAxis", &s.axis}, {"SDL_GetGamepadName", &s.name},
-		{"SDL_IOFromFile", &s.ioFromFile}, {"SDL_AddGamepadMappingsFromIO", &s.addMappings},
+		{"SDL_AddGamepadMappingsFromIO", &s.addMappings},
 		{"SDL_IOFromConstMem", &s.ioFromConstMem},
 		{"SDL_GetGamepadMapping", &s.mapping}, {"SDL_GetJoysticks", &s.getJoysticks},
 		{"SDL_GetJoystickNameForID", &s.joystickName}, {"SDL_GetJoystickVendorForID", &s.vendor},
@@ -124,13 +124,6 @@ func (s *sdlBackend) errorText() string {
 }
 
 func (s *sdlBackend) loadMappings() {
-	if path, err := bundledSDLMappingPath(); err != nil {
-		lgx.Warnf("extract bundled SDL3 controller mappings: %v", err)
-	} else {
-		if err := s.loadMappingFile(path, "bundled"); err != nil {
-			lgx.Warnf("load bundled SDL3 controller mappings: %v", err)
-		}
-	}
 	paths, err := controllerDatabasePaths()
 	if err != nil {
 		lgx.Warnf("resolve custom SDL3 controller mappings: %v", err)
@@ -151,27 +144,6 @@ func (s *sdlBackend) loadMappings() {
 	s.mappingFiles, s.mappingHash = files, hash
 }
 
-func (s *sdlBackend) loadMappingFile(path, source string) error {
-	file, err := windows.BytePtrFromString(path)
-	if err != nil {
-		return err
-	}
-	mode, _ := windows.BytePtrFromString("r")
-	stream, _, _ := s.ioFromFile.Call(uintptr(unsafe.Pointer(file)), uintptr(unsafe.Pointer(mode)))
-	runtime.KeepAlive(file)
-	runtime.KeepAlive(mode)
-	if stream == 0 {
-		return fmt.Errorf("open SDL3 controller mappings path=%q err=%s", path, s.errorText())
-	}
-	// closeio=true transfers stream ownership to SDL, even on failure.
-	result, _, _ := s.addMappings.Call(stream, 1)
-	if int32(result) < 0 {
-		return fmt.Errorf("load SDL3 controller mappings path=%q err=%s", path, s.errorText())
-	}
-	lgx.Infof("SDL3 controller mappings loaded source=%s path=%q count=%d", source, path, int32(result))
-	return nil
-}
-
 func (s *sdlBackend) loadMappingData(file controllerMappingFile) error {
 	data := file.data
 	// SDL's text reader need not handle the BOM produced by some Windows editors.
@@ -190,7 +162,7 @@ func (s *sdlBackend) loadMappingData(file controllerMappingFile) error {
 	if int32(result) < 0 {
 		return fmt.Errorf("load custom SDL3 mapping snapshot path=%q err=%s", file.path, s.errorText())
 	}
-	lgx.Infof("SDL3 controller mappings loaded source=custom path=%q count=%d", file.path, int32(result))
+	lgx.Infof("SDL3 controller mappings loaded source=%s path=%q count=%d", file.source, file.path, int32(result))
 	return nil
 }
 
@@ -237,7 +209,7 @@ func (s *sdlBackend) checkMappingChanges(now time.Time) error {
 }
 
 // SDL's mapping loader is additive. Reinitialize just the SDL input subsystem
-// on its owner thread so deleted rows/files also restore the bundled defaults.
+// on its owner thread so deleted rows/files also restore the current sources.
 func (s *sdlBackend) rebuildMappings(files []controllerMappingFile) error {
 	s.closeInput()
 	if err := s.hint("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1"); err != nil {
@@ -248,13 +220,6 @@ func (s *sdlBackend) rebuildMappings(files []controllerMappingFile) error {
 		return fmt.Errorf("reinitialize SDL3 input: %s", s.errorText())
 	}
 	s.initialized = true
-	path, err := bundledSDLMappingPath()
-	if err != nil {
-		return err
-	}
-	if err := s.loadMappingFile(path, "bundled"); err != nil {
-		return err
-	}
 	for _, file := range files {
 		if err := s.loadMappingData(file); err != nil {
 			return err

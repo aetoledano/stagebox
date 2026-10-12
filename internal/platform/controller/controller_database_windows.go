@@ -26,8 +26,9 @@ const (
 )
 
 type controllerMappingFile struct {
-	path string
-	data []byte
+	path   string
+	data   []byte
+	source string
 }
 
 func controllerDatabasePaths() ([]string, error) {
@@ -36,33 +37,48 @@ func controllerDatabasePaths() ([]string, error) {
 		return nil, err
 	}
 	dir := filepath.Dir(exe)
-	// The requested assets file is authoritative. Preserve support for the
-	// old executable-adjacent override, loading it before the assets file.
-	return []string{filepath.Join(dir, "gamecontrollerdb.txt"), filepath.Join(dir, "assets", "gamecontrollerdb.txt")}, nil
+	return controllerDatabasePathsIn(dir), nil
 }
 
-func ensureControllerDatabase(ctx context.Context) {
+func controllerDatabasePathsIn(dir string) []string {
+	return []string{
+		filepath.Join(dir, "assets", "gamecontrollerdb.txt"),
+		filepath.Join(dir, "gamecontrollerdb.txt"), // Existing legacy overrides.
+		filepath.Join(dir, "assets", "gamecontrollerdb-overrides.txt"),
+	}
+}
+
+func ensureControllerDatabase(ctx context.Context, download bool) {
 	paths, err := controllerDatabasePaths()
 	if err != nil {
 		lgx.Warnf("resolve controller database download path: %v", err)
 		return
 	}
-	path := paths[len(paths)-1]
-	lgx.Infof("controller database download enabled path=%q", path)
+	path := paths[0]
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		lgx.Warnf("prepare controller database assets: %v", err)
+		return
+	}
+	overrides := []byte("# StageBox manual controller overrides. This file is never downloaded or overwritten.\n# Add SDL mapping rows here with platform:Windows; valid edits reload automatically.\n# The complete upstream database is kept separately in gamecontrollerdb.txt.\n")
+	if err := publishControllerMappingFile(paths[2], overrides, false); err != nil {
+		lgx.Warnf("prepare controller overrides: %v", err)
+	}
+	if err := writeControllerDatabaseLicense(dir); err != nil {
+		lgx.Warnf("write controller database license: %v", err)
+	}
+	if !download {
+		lgx.Info("controller database startup refresh disabled; using cached database and overrides")
+		return
+	}
+	lgx.Infof("controller database background refresh started path=%q", path)
 	if err := downloadControllerDatabase(ctx, path, controllerDatabaseURL, &http.Client{Timeout: 30 * time.Second}); err != nil {
 		lgx.Warnf("controller database download failed path=%q err=%v; keeping local/bundled mappings", path, err)
 		return
 	}
-	if err := writeControllerDatabaseLicense(filepath.Dir(path)); err != nil {
-		lgx.Warnf("write controller database license: %v", err)
-	}
 }
 
 func writeControllerDatabaseLicense(dir string) error {
-	data, err := sdlMappingAssets.ReadFile("sdl/gamecontrollerdb-LICENSE.txt")
-	if err != nil {
-		return err
-	}
 	file, err := os.OpenFile(filepath.Join(dir, "gamecontrollerdb-LICENSE.txt"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if os.IsExist(err) {
 		return nil
@@ -70,7 +86,7 @@ func writeControllerDatabaseLicense(dir string) error {
 	if err != nil {
 		return err
 	}
-	_, writeErr := file.Write(data)
+	_, writeErr := file.Write(sdlDatabaseLicense)
 	closeErr := file.Close()
 	if writeErr != nil {
 		os.Remove(file.Name())
@@ -79,15 +95,9 @@ func writeControllerDatabaseLicense(dir string) error {
 	return closeErr
 }
 
-// Download only a missing database. Moving the complete temporary file without
-// REPLACE_EXISTING also protects a file created manually during the request.
+// Refresh the managed base database on every startup; user corrections belong
+// to the separately watched overrides file and are never downloaded over.
 func downloadControllerDatabase(ctx context.Context, path, url string, client *http.Client) error {
-	if _, err := os.Stat(path); err == nil {
-		lgx.Infof("controller database already exists; preserving edits path=%q", path)
-		return nil
-	} else if !os.IsNotExist(err) {
-		return err
-	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -121,6 +131,43 @@ func downloadControllerDatabase(ctx context.Context, path, url string, client *h
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	if current, err := os.Open(path); err == nil {
+		oldData, readErr := readControllerMappingData(current)
+		current.Close()
+		if readErr != nil {
+			return fmt.Errorf("read previous controller database: %w", readErr)
+		}
+		if bytes.Equal(oldData, data) {
+			lgx.Infof("controller database already current path=%q windowsMappings=%d", path, count)
+			return nil
+		}
+		// Retain the first replaced local file so edits made under the previous
+		// shared-base policy can be moved into the dedicated overrides file.
+		backup := filepath.Join(filepath.Dir(path), "gamecontrollerdb-before-refresh.txt")
+		if err := publishControllerMappingFile(backup, oldData, false); err != nil {
+			return fmt.Errorf("back up previous controller database: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := publishControllerMappingFile(path, data, true); err != nil {
+		return err
+	}
+	lgx.Infof("controller database downloaded path=%q windowsMappings=%d bytes=%d source=%s", path, count, len(data), url)
+	return nil
+}
+
+func publishControllerMappingFile(path string, data []byte, replace bool) error {
+	if !replace {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
 	file, err := os.CreateTemp(filepath.Dir(path), ".gamecontrollerdb-*.tmp")
 	if err != nil {
 		return err
@@ -137,9 +184,6 @@ func downloadControllerDatabase(ctx context.Context, path, url string, client *h
 	if closeErr != nil {
 		return closeErr
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	src, err := windows.UTF16PtrFromString(file.Name())
 	if err != nil {
 		return err
@@ -148,14 +192,18 @@ func downloadControllerDatabase(ctx context.Context, path, url string, client *h
 	if err != nil {
 		return err
 	}
-	if err := windows.MoveFileEx(src, dst, windows.MOVEFILE_WRITE_THROUGH); err != nil {
-		if _, existing := os.Stat(path); existing == nil {
-			lgx.Infof("controller database appeared during download; preserving edits path=%q", path)
-			return nil
+	flags := uint32(windows.MOVEFILE_WRITE_THROUGH)
+	if replace {
+		flags |= windows.MOVEFILE_REPLACE_EXISTING
+	}
+	if err := windows.MoveFileEx(src, dst, flags); err != nil {
+		if !replace {
+			if _, existing := os.Stat(path); existing == nil {
+				return nil
+			}
 		}
 		return err
 	}
-	lgx.Infof("controller database downloaded path=%q windowsMappings=%d bytes=%d source=%s", path, count, len(data), url)
 	return nil
 }
 
@@ -216,7 +264,7 @@ func validateControllerMappingData(data []byte) (int, error) {
 func readControllerMappingFiles(paths []string) ([]controllerMappingFile, [32]byte, error) {
 	files := make([]controllerMappingFile, 0, len(paths))
 	hash := sha256.New()
-	for _, path := range paths {
+	for index, path := range paths {
 		file, err := os.Open(path)
 		if os.IsNotExist(err) {
 			hash.Write([]byte{0})
@@ -236,7 +284,11 @@ func readControllerMappingFiles(paths []string) ([]controllerMappingFile, [32]by
 		hash.Write([]byte{1})
 		sum := sha256.Sum256(data)
 		hash.Write(sum[:])
-		files = append(files, controllerMappingFile{path: path, data: data})
+		source := "overrides"
+		if index == 0 {
+			source = "database"
+		}
+		files = append(files, controllerMappingFile{path: path, data: data, source: source})
 	}
 	var digest [32]byte
 	copy(digest[:], hash.Sum(nil))

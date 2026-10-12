@@ -16,11 +16,40 @@ import (
 const testControllerMapping = "03000000c82d00001230000000000000,8BitDo Ultimate,a:b0,back:b10,start:b11,platform:Windows,\n"
 const testXInputControllerMapping = "xinput,XInput Controller,a:b0,back:b6,start:b7,platform:Windows,\n"
 
-func TestControllerDatabaseDownloadPreservesManualEdits(t *testing.T) {
+func TestControllerDatabaseLoadsBaseBeforeOverrides(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	paths := controllerDatabasePathsIn(dir)
+	if len(paths) != 3 || paths[0] != filepath.Join(dir, "assets", "gamecontrollerdb.txt") || paths[2] != filepath.Join(dir, "assets", "gamecontrollerdb-overrides.txt") {
+		t.Fatalf("incorrect base/override paths: %v", paths)
+	}
+	for i, path := range paths {
+		data := strings.Replace(testControllerMapping, "start:b11", []string{"start:b8", "start:b9", "start:b10"}[i], 1)
+		if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, _, err := readControllerMappingFiles(paths)
+	if err != nil || len(files) != 3 {
+		t.Fatalf("read mapping stack: files=%d err=%v", len(files), err)
+	}
+	if files[0].source != "database" || files[2].source != "overrides" || !strings.Contains(string(files[2].data), "start:b10") {
+		t.Fatalf("base/overrides loaded in wrong order: %v", files)
+	}
+}
+
+func TestControllerDatabaseRefreshesBaseAndPreservesOverrides(t *testing.T) {
 	var requests atomic.Int32
+	initial := testControllerMapping + testXInputControllerMapping
+	updated := strings.Replace(initial, "start:b11", "start:b12", 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		w.Write([]byte(testControllerMapping + testXInputControllerMapping))
+		if requests.Add(1) == 1 {
+			w.Write([]byte(initial))
+		} else {
+			w.Write([]byte(updated))
+		}
 	}))
 	defer server.Close()
 	path := filepath.Join(t.TempDir(), "assets", "gamecontrollerdb.txt")
@@ -28,23 +57,33 @@ func TestControllerDatabaseDownloadPreservesManualEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	manual := strings.Replace(testControllerMapping, "start:b11", "start:b7", 1)
-	if err := os.WriteFile(path, []byte(manual), 0o644); err != nil {
+	overrides := filepath.Join(filepath.Dir(path), "gamecontrollerdb-overrides.txt")
+	if err := os.WriteFile(overrides, []byte(manual), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := downloadControllerDatabase(context.Background(), path, server.URL, server.Client()); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
-	if err != nil || string(data) != manual || requests.Load() != 1 {
-		t.Fatalf("manual edits were not preserved: data=%q requests=%d err=%v", data, requests.Load(), err)
+	if err != nil || string(data) != updated || requests.Load() != 2 {
+		t.Fatalf("base database was not refreshed: data=%q requests=%d err=%v", data, requests.Load(), err)
+	}
+	data, err = os.ReadFile(overrides)
+	if err != nil || string(data) != manual {
+		t.Fatalf("manual overrides changed: data=%q err=%v", data, err)
+	}
+	data, err = os.ReadFile(filepath.Join(filepath.Dir(path), "gamecontrollerdb-before-refresh.txt"))
+	if err != nil || string(data) != initial {
+		t.Fatalf("original base not backed up: data=%q err=%v", data, err)
 	}
 }
 
-func TestControllerDatabaseDownloadDoesNotReplaceConcurrentFile(t *testing.T) {
+func TestControllerDatabaseRefreshPreservesConcurrentOverrides(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gamecontrollerdb.txt")
+	overrides := filepath.Join(filepath.Dir(path), "gamecontrollerdb-overrides.txt")
 	manual := "# manually created during request\n" + testControllerMapping
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := os.WriteFile(path, []byte(manual), 0o644); err != nil {
+		if err := os.WriteFile(overrides, []byte(manual), 0o644); err != nil {
 			t.Error(err)
 		}
 		w.Write([]byte(testControllerMapping))
@@ -53,7 +92,10 @@ func TestControllerDatabaseDownloadDoesNotReplaceConcurrentFile(t *testing.T) {
 	if err := downloadControllerDatabase(context.Background(), path, server.URL, server.Client()); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(path)
+	if err := publishControllerMappingFile(overrides, []byte("# empty defaults\n"), false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(overrides)
 	if err != nil || string(data) != manual {
 		t.Fatalf("concurrent manual file was replaced: data=%q err=%v", data, err)
 	}
@@ -78,11 +120,14 @@ func TestControllerDatabaseRejectsFailedDownloads(t *testing.T) {
 			}))
 			defer server.Close()
 			path := filepath.Join(t.TempDir(), "gamecontrollerdb.txt")
+			if err := os.WriteFile(path, []byte(testControllerMapping), 0o644); err != nil {
+				t.Fatal(err)
+			}
 			if err := downloadControllerDatabase(context.Background(), path, server.URL, server.Client()); err == nil {
 				t.Fatal("bad download accepted")
 			}
-			if _, err := os.Stat(path); !os.IsNotExist(err) {
-				t.Fatalf("bad download published: %v", err)
+			if data, err := os.ReadFile(path); err != nil || string(data) != testControllerMapping {
+				t.Fatalf("bad download replaced cached base: data=%q err=%v", data, err)
 			}
 			if files, _ := filepath.Glob(filepath.Join(filepath.Dir(path), ".gamecontrollerdb-*.tmp")); len(files) != 0 {
 				t.Fatalf("temporary files leaked: %v", files)

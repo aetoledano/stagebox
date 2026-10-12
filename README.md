@@ -89,7 +89,7 @@ If you only want to run the app without installing it as the Windows shell, plac
   "gamesRoot": "C:\\games",
   "debug": true,
   "retrobatPath": "D:\\RetroBat",
-  "downloadControllerDatabase": false
+  "downloadControllerDatabase": true
 }
 ```
 
@@ -97,7 +97,7 @@ If you only want to run the app without installing it as the Windows shell, plac
 
 `retrobatPath` is optional and accepts the RetroBat installation folder or the full path to `RetroBat.exe`. Restart StageBox after editing `config.json`.
 
-Set optional `downloadControllerDatabase` to `true` to download the community SDL controller database automatically when `assets/gamecontrollerdb.txt` beside StageBox is missing. It defaults to `false`. Existing databases and manual edits are preserved; restart StageBox after changing the option.
+StageBox refreshes the community SDL controller database in the background on every Windows startup. `downloadControllerDatabase` defaults to `true`; set it to `false` to use the cached database without an internet request. Restart after changing this option. Keep manual edits in the separate overrides file described below.
 
 ## RetroBat
 
@@ -239,15 +239,15 @@ Game crash-reporting helpers remain tracked for Start+Back cleanup, but their wi
 
 ## Controller Input
 
-StageBox uses SDL3's Gamepad API on Windows amd64. The official SDL 3.4.18 runtime and license are bundled into `stagebox.exe` and extracted to versioned files under `cache/assets`, so deploying the executable does not require installing SDL or copying another DLL. The runtime's built-in mappings handle supported Xbox, PlayStation, Nintendo and other controllers. StageBox also embeds a small [mapping supplement](internal/platform/controller/sdl/gamecontrollerdb.txt), currently adding the Windows 8BitDo Ultimate `2dc8:3012` profile with Select on raw button 10 and Start on raw button 11 (zero based).
+StageBox uses SDL3's Gamepad API on Windows amd64. The official SDL 3.4.18 runtime and license are bundled into `stagebox.exe` and extracted to versioned files under `cache/assets`, so deploying the executable does not require installing SDL or copying another DLL. The runtime's built-in mappings handle supported Xbox, PlayStation, Nintendo and other controllers.
 
-The main editable database is `assets/gamecontrollerdb.txt` **beside `stagebox.exe`**, for example `C:\launcher\assets\gamecontrollerdb.txt`. With `downloadControllerDatabase: true` in `config.json`, StageBox downloads the full list from [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB/blob/master/gamecontrollerdb.txt) in the background on startup only if this file is missing, and places its license in the same assets folder. Existing files are never overwritten, including a file you create while a download is in progress. Download failures keep local/bundled mappings and are logged. To fetch a fresh list, back up your edits, remove the assets database, and restart with the option enabled.
+StageBox keeps the complete upstream database in `assets/gamecontrollerdb.txt` **beside `stagebox.exe`**, for example `C:\launcher\assets\gamecontrollerdb.txt`. On every startup, a separate Go goroutine downloads the current list from [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB/blob/master/gamecontrollerdb.txt). Startup and controller polling do not wait for the request: StageBox immediately uses the cached database or SDL's built-in mappings. A successful validated download replaces the managed base file atomically; an identical download leaves it untouched, and failures retain the previous file. Its license is placed in the same assets folder. To disable the startup request, set `downloadControllerDatabase: false`.
 
-Whether downloading is enabled or not, StageBox loads your assets database and watches for edits. Valid changes normally take effect in about one to two seconds without restarting, including new files, replaced files and deleted entries. Save as UTF-8 and use `platform:Windows` entries; invalid or unreadable changes keep the previous mappings. Reloading briefly rescans SDL controllers, releases held mapped keys/mouse buttons, and waits for neutral controller input before resuming. A Batocera/Linux entry can have a different GUID and button/axis layout even for the same controller; connection mode and firmware can also affect the matching profile.
+Put your manual mappings in **`assets/gamecontrollerdb-overrides.txt`**. StageBox creates an empty commented template when missing and never overwrites it. This file loads after the base database, so your corrections survive every upstream refresh. The older `gamecontrollerdb.txt` directly beside the executable is still supported as an override source; the assets overrides file takes final precedence. The first local base file replaced by the new refresh policy is preserved as `assets/gamecontrollerdb-before-refresh.txt`, so edits made under the previous shared-file policy can be moved into the dedicated overrides file. Make future edits in the overrides file, since the base database is refreshed from upstream.
 
-The older `gamecontrollerdb.txt` directly beside the executable is also loaded and watched. Precedence is SDL built-ins, StageBox supplement, executable-adjacent database, then **assets database**. Your edits in assets take final precedence. The optional full community database can replace existing profiles as well as add missing ones; test both of your controllers after enabling it. Edit the repository supplement and rebuild to change shipped defaults; the extracted cache copy is generated.
+All three external sources are watched for changes. Valid changes normally take effect in about one to two seconds without restarting, including completed downloads, manual edits, replaced files and deleted entries. Save overrides as UTF-8 and use `platform:Windows` entries; invalid or unreadable changes keep the previous mappings. Reloading briefly rescans SDL controllers, releases held mapped keys/mouse buttons, and waits for neutral controller input before resuming. Batocera/Linux entries can have different GUIDs and button/axis layouts even for the same controller; connection mode and firmware can also affect the matching profile.
 
-Buttons use physical positions: the bottom face button confirms and the right face button goes back. These correspond to Xbox A/B, PlayStation Cross/Circle, and Nintendo B/A. D-pad/sticks, Start/Back, existing per-game keyboard/mouse mappings, Bluetooth-pairing controls, Steam dialog pointer helpers and right-stick launcher volume keep their existing actions.
+Precedence is SDL built-ins, downloaded/cached base database, legacy executable-adjacent overrides, then assets overrides. The Ultimate profile is present in the full upstream database. No separate StageBox mapping subset is embedded, extracted or loaded from the runtime cache. Old `cache/assets/stagebox-gamecontrollerdb-v1.txt` and its license can be deleted; the current build never recreates them. The full upstream database replaces matching built-in profiles too, so check both controllers after updating.
 
 One selected controller drives StageBox, retained until it disconnects. The controller indicator counts opened SDL gamepads. Detection refreshes while the launcher is paused for games; losing/changing a device releases mapped keys/buttons, resets repeat/kill state and requires neutral sticks, released triggers and buttons before accepting the replacement controller. Returning from a game still uses the existing launcher foreground/neutral gate.
 
@@ -315,4 +315,4 @@ Before making the repository public, add a top-level `LICENSE` file and update t
 
 The bundled [SDL3 runtime](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18) is distributed under its zlib license, retained at `internal/platform/controller/sdl/windows_amd64/LICENSE.txt` and extracted beside its cached runtime. Release URLs and verified SHA-256 digests are recorded in `internal/platform/controller/sdl/README.md`.
 
-The curated mapping supplement comes from [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) under its zlib license, retained at `internal/platform/controller/sdl/gamecontrollerdb-LICENSE.txt` and extracted beside the cached supplement. Its pinned source revision is recorded in the supplement and `sdl/README.md`.
+The downloaded controller database comes from [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) under its zlib license, retained at `internal/platform/controller/sdl/gamecontrollerdb-LICENSE.txt` and copied to the executable-adjacent assets folder. StageBox embeds its license only; it does not embed a separate controller database.
