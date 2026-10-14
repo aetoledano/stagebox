@@ -231,6 +231,15 @@ func (a *App) OpenRetroBat() error {
 		return err
 	}
 	lgx.Infof("RetroBat executable found: %s", exe)
+	if a.pad != nil && a.pad.NeedsVirtualInput(false) {
+		runtime.EventsEmit(a.ctx, "game:launch-begin", map[string]any{"id": "retrobat", "name": "RetroBat"})
+		if err := a.prepareSessionVirtualInput("retrobat", "RetroBat", false); err != nil {
+			a.endGameSession()
+			lgx.Warnf("RetroBat controller setup blocked: %v", err)
+			runtime.EventsEmit(a.ctx, "game:launch-blocked", map[string]any{"id": "retrobat", "name": "RetroBat", "error": err.Error()})
+			return err
+		}
+	}
 	a.pauseKeyboardInput()
 	if a.pad != nil {
 		a.pad.Pause()
@@ -246,6 +255,7 @@ func (a *App) OpenRetroBat() error {
 		if err == nil {
 			err = <-run.Done
 		}
+		err = a.finishSessionVirtualInput("RetroBat", err)
 		if a.ctx.Err() != nil {
 			return
 		}

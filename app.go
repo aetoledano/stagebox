@@ -34,6 +34,8 @@ type App struct {
 	gameSessionActive  bool
 	steamLaunchID      uuid.UUID
 	steamLaunchChoice  chan string
+	launcherGuideInput chan launcherGuideRequest
+	steamGuideInput    bool // guarded by gameSessionMu; only this owner may clear its pointer mode
 	pairingMu          sync.Mutex
 	pairingActive      bool
 	thumbnailDir       string
@@ -92,8 +94,10 @@ func (a *App) startup(ctx context.Context) {
 	a.soundInput = make(chan string, 16)
 	go a.watchSound()
 	go a.handleSoundInput()
-	a.pad = controller.StartControllerBridge(ctx, a.queueSoundInput, a.config.DownloadControllerDatabase)
+	a.launcherGuideInput = make(chan launcherGuideRequest, 1)
+	a.pad = controller.StartControllerBridge(ctx, a.queueSoundInput, a.config.DownloadControllerDatabase, a.queueLauncherGuide)
 	a.keyboard = controller.StartKeyboardBridge(ctx, a.queueSoundInput)
+	go a.watchLauncherGuide()
 
 	go a.watchBluetooth()
 
@@ -246,6 +250,7 @@ func (a *App) beginGameSession(name string) bool {
 		lgx.Debugf("launch ignored name=%q: StageBox is not foreground", name)
 		return false
 	}
+	a.clearSteamGuideInputLocked(false)
 	a.gameSessionActive = true
 	return true
 }
@@ -268,6 +273,9 @@ func (a *App) Launch(id uuid.UUID) {
 	if !a.beginGameSession(game.Name) {
 		return
 	}
+	if a.pad != nil {
+		_ = a.pad.TestController("")
+	}
 	runtime.EventsEmit(a.ctx, "game:launch-begin", map[string]any{"id": game.ID.String()})
 	steamUpdateOnly := false
 	if game.SteamAppID != 0 {
@@ -286,6 +294,32 @@ func (a *App) Launch(id uuid.UUID) {
 		}
 		game = prepared
 		steamUpdateOnly = updateOnly
+	}
+	gameVirtualInput := false
+	if game.SteamAppID == 0 {
+		enabled, err := games.NativeVirtualInput(game)
+		if err == nil {
+			copy := *game
+			copy.EnableVirtualInput = enabled
+			game = &copy
+			gameVirtualInput = enabled
+		}
+		if err != nil {
+			a.endGameSession()
+			lgx.Warnf("native game input setup blocked name=%q: %v", game.Name, err)
+			runtime.EventsEmit(a.ctx, "game:launch-blocked", map[string]any{"id": game.ID.String(), "name": game.Name, "error": err.Error()})
+			return
+		}
+	}
+	if err := a.prepareSessionVirtualInput(game.ID.String(), game.Name, gameVirtualInput); err != nil {
+		a.endGameSession()
+		lgx.Warnf("game controller setup blocked name=%q: %v", game.Name, err)
+		runtime.EventsEmit(a.ctx, "game:launch-blocked", map[string]any{"id": game.ID.String(), "name": game.Name, "error": err.Error()})
+		return
+	}
+	if game.SteamAppID != 0 {
+		runtime.EventsEmit(a.ctx, "game:launch-status", map[string]any{"id": game.ID.String(), "name": game.Name,
+			"stage": "steam-opening", "message": "Launching Steam…", "progress": -1})
 	}
 
 	gameKeyMapActive := false
@@ -431,6 +465,12 @@ func (a *App) Launch(id uuid.UUID) {
 			a.pad.DisableMouseMode()
 		}
 		startupMu.Unlock()
+		if game.SteamAppID != 0 {
+			if uiErr := games.BackgroundSteamClient(a.ctx, game.Executable); uiErr != nil {
+				lgx.Warnf("Steam UI cleanup before launcher return failed: %v", uiErr)
+			}
+		}
+		err = a.finishSessionVirtualInput(game.Name, err)
 		if err != nil {
 			lgx.Errorf("launch session ended with error id=%s name=%q err=%v", game.ID, game.Name, err)
 			runtime.EventsEmit(a.ctx, "game:launch-error", map[string]any{
@@ -440,11 +480,6 @@ func (a *App) Launch(id uuid.UUID) {
 			})
 		} else {
 			lgx.Infof("launch session ended id=%s name=%q", game.ID, game.Name)
-		}
-		if game.SteamAppID != 0 {
-			if uiErr := games.BackgroundSteamClient(a.ctx, game.Executable); uiErr != nil {
-				lgx.Warnf("Steam UI cleanup before launcher return failed: %v", uiErr)
-			}
 		}
 
 		cursor.RestoreSystemCursor()

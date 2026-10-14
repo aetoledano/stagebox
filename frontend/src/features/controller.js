@@ -5,6 +5,8 @@ import { handleControllerNav, handleControllerPress } from "./topbarMenu.js";
 import { handleWifiControllerNav, handleWifiControllerPress } from "./wifi.js";
 import { handleSoundControllerNav, handleSoundControllerPress } from "./sound.js";
 import { handleLaunchFeedbackNav, handleLaunchFeedbackPress } from "./launchFeedback.js";
+import { gameOptionsOpen, openGameOptions, handleGameOptionsNav, handleGameOptionsPress } from "./gameOptions.js";
+import { handleControllersNav, handleControllersPress } from "./controllers.js";
 
 
 let getCards = () => [];
@@ -12,6 +14,52 @@ let getBarButtons = () => [];
 let onActivateCard = null;
 
 const state = { mode: "grid", i: 0 };
+let aIntent = null;
+
+function cancelAHold() {
+  if (!aIntent) return;
+  clearTimeout(aIntent.timer);
+  aIntent.card?.classList.remove("gp-holding");
+  aIntent = null;
+}
+function press(name) {
+  if (name !== "A") cancelAHold();
+  if (handleLaunchFeedbackPress(name)) return;
+  if (handleControllersPress(name)) return;
+  if (handleGameOptionsPress(name)) return;
+  if (handleSoundControllerPress(name)) return;
+  if (handleWifiControllerPress(name)) return;
+  if (handleControllerPress(name)) return;
+  if (name === "A") activate();
+  else if (name === "KILL") KillRunning().catch(console.error);
+}
+function physicalA({ name, down, cancelled }) {
+  if (name !== "A") return;
+  if (!down) {
+    const intent = aIntent;
+    cancelAHold();
+    if (!cancelled && intent && !intent.opened && intent.card.isConnected && state.mode === "grid" && getCards()[state.i] === intent.card) {
+      onActivateCard?.(intent.card);
+    }
+    return;
+  }
+  cancelAHold();
+  // Existing modal/topbar/Steam actions activate on press. Only native cards
+  // defer activation to release so the same button can open their options.
+  if (handleLaunchFeedbackPress("A") || handleControllersPress("A") || handleGameOptionsPress("A") || handleSoundControllerPress("A") ||
+      handleWifiControllerPress("A") || handleControllerPress("A")) return;
+  const card = state.mode === "grid" ? getCards()[state.i] : null;
+  if (!card || card.dataset.steamAppId !== "0") { activate(); return; }
+  const intent = { card, opened: false, timer: null };
+  aIntent = intent;
+  card.classList.add("gp-holding");
+  intent.timer = setTimeout(() => {
+    if (aIntent !== intent || !card.isConnected || state.mode !== "grid" || getCards()[state.i] !== card || gameOptionsOpen()) return;
+    intent.opened = true;
+    card.classList.remove("gp-holding");
+    openGameOptions(card);
+  }, 1000);
+}
 
 function updateClasses() {
   const cards = getCards();
@@ -77,7 +125,10 @@ function nearestCardIndexFromBar(btn) {
 }
 
 function move(dir) {
+  cancelAHold();
   if (handleLaunchFeedbackNav(dir)) return;
+  if (handleControllersNav(dir)) return;
+  if (handleGameOptionsNav(dir)) return;
   if (handleSoundControllerNav(dir)) return;
   if (handleWifiControllerNav(dir)) return;
   if (handleControllerNav(dir)) return;
@@ -141,14 +192,10 @@ export function controllerInit(opts) {
 
   // Wire Go -> JS events
   EventsOn("pad:nav",   ({dir}) => move(dir));
-  EventsOn("pad:press", (name) => { 
-    if (handleLaunchFeedbackPress(name)) return;
-    if (handleSoundControllerPress(name)) return;
-    if (handleWifiControllerPress(name)) return;
-    if (handleControllerPress(name)) return;
-    if (name === "A") activate() 
-    else if (name === "KILL") KillRunning()
-  });
+  EventsOn("pad:press", press);
+  EventsOn("pad:button", physicalA);
+  ["game:launch-begin", "game:start", "games:loading", "bt:pairing-start"].forEach((event) => EventsOn(event, cancelAHold));
+  window.addEventListener("blur", cancelAHold);
 }
 
 export function controllerRefresh() {

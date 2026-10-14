@@ -30,6 +30,14 @@ export function GetAudioStatus() {
   return window['go']['main']['App']['GetAudioStatus']();
 }
 
+export function GetControllers() {
+  return window['go']['main']['App']['GetControllers']();
+}
+
+export function GetGameOptions(arg1) {
+  return window['go']['main']['App']['GetGameOptions'](arg1);
+}
+
 export function GetSoundSettings() {
   return window['go']['main']['App']['GetSoundSettings']();
 }
@@ -74,8 +82,20 @@ export function ScanWifiNetworks() {
   return window['go']['main']['App']['ScanWifiNetworks']();
 }
 
+export function SelectController(arg1) {
+  return window['go']['main']['App']['SelectController'](arg1);
+}
+
 export function SetAudioVolume(arg1) {
   return window['go']['main']['App']['SetAudioVolume'](arg1);
+}
+
+export function SetControllerDefault(arg1, arg2) {
+  return window['go']['main']['App']['SetControllerDefault'](arg1, arg2);
+}
+
+export function SetGameVirtualInput(arg1, arg2) {
+  return window['go']['main']['App']['SetGameVirtualInput'](arg1, arg2);
 }
 
 export function SetLauncherInputPaused(arg1) {
@@ -104,6 +124,10 @@ export function SteamLaunchAction(arg1, arg2) {
 
 export function SteamUpdateStates() {
   return window['go']['main']['App']['SteamUpdateStates']();
+}
+
+export function TestController(arg1) {
+  return window['go']['main']['App']['TestController'](arg1);
 }
 
 export function ToggleAudioMute() {

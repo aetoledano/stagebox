@@ -131,6 +131,7 @@ export function handleLaunchFeedbackPress(name) {
 }
 
 function renderStatus(payload) {
+  if (payload.stage === "virtual-input") steamOpening = false;
   if (payload.stage === "steam-opening") steamOpening = true;
   if (steamOpening) payload = { ...payload, stage: "steam-opening", message: "Launching Steam…", progress: -1,
     canOpenSteam: false, canUpdateInSteam: false, canGoBack: false };

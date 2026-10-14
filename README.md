@@ -32,6 +32,7 @@ The project can be inspected and partially built on Linux, but the production ru
 - Microsoft Edge WebView2 Runtime.
 - A folder containing local games with one `lc.json` per game, or an installed Steam library.
 - Administrator access if you want to install StageBox as a kiosk shell with the provided PowerShell installer.
+- Optional virtual Xbox input needs Windows x64, the bundled `assets/hidmaestro` folder and administrator permission for device creation. Its .NET runtime is included.
 
 ### Development
 
@@ -40,7 +41,16 @@ The project can be inspected and partially built on Linux, but the production ru
 - Wails v2 CLI.
 - Windows build tooling when building on Windows.
 - MinGW-w64 when cross-building the Windows executable from Linux.
+- .NET 10 SDK and Python 3.11+ for building the bundled Windows virtual-controller helper. Initial builds download the pinned HIDMaestro SDK and .NET runtime packages.
 - Linux Wails dependencies if using `make dev` or `make build-linux` on Linux.
+
+The Windows build now compiles the C# helper too, so the development machine needs the **SDK**, even though Windows runtime users get .NET bundled. On Fedora, install it with:
+
+```sh
+sudo dnf install dotnet-sdk-10.0
+```
+
+See [Microsoft's Fedora instructions](https://learn.microsoft.com/en-us/dotnet/core/install/linux-fedora) for supported distributions. Check build prerequisites with `make virtual-helper-deps` or see `make help`. If your SDK is installed outside `PATH`, use `make DOTNET=/absolute/path/to/dotnet`; no shell-profile changes are required. `make` checks Python and the selected SDK before downloading helper assets.
 
 ## Install From Source
 
@@ -67,7 +77,9 @@ make release
 The release bundle is written to `release/` and includes:
 
 - `stagebox.exe`
+- `assets/hidmaestro/` (portable helper, runtime, SDK and licenses)
 - `install-stagebox.ps1`
+- `install-hidhide.ps1`
 - `svc.vbs`
 - `systemsvcs.ps1`
 - `elevated-PS.cmd`
@@ -78,7 +90,15 @@ For a kiosk installation, move the release bundle to the Windows machine, open P
 .\install-stagebox.ps1
 ```
 
-The installer stages files under `C:\launcher`, writes a default `config.json` when needed, registers StageBox as the user shell, sets up helper scheduled tasks, and prepares Wi-Fi/Bluetooth services for kiosk use.
+The installer stages files under `C:\launcher`, installs HidHide before shell/task registration, writes a default `config.json` when needed, registers StageBox as the user shell, sets up helper scheduled tasks, and prepares Wi-Fi/Bluetooth services for kiosk use. An existing HidHide installation is preserved. Restart Windows once after a new driver installation; the script never restarts the machine automatically.
+
+For an existing StageBox installation, run only the driver script from PowerShell as Administrator:
+
+```powershell
+.\install-hidhide.ps1
+```
+
+Keep the bundled `HidHide_1.5.230_x64.exe` beside that script or under `assets\hidmaestro`. It also searches `C:\launcher\assets\hidmaestro`; use `-LauncherDir` for a different StageBox folder or `-InstallerPath` for an explicit installer. The standalone script logs to `hidhide-install.log` beside itself. It verifies the official pinned SHA-256, installs silently with automatic restart disabled, and leaves existing HidHide device/application lists unchanged. After a new install, restart Windows before using virtual input. The complete StageBox installer invokes the same script and records its output in `installation.log`.
 
 ## Manual Runtime Setup
 
@@ -111,7 +131,7 @@ StageBox starts an installed `RetroBat.exe` from its installation folder, pauses
 
 The Windows session tracks the launched process group, including EmulationStation and inherited emulator children, rather than ending when the bootstrap executable exits or the frontend hides during gameplay. A lingering child/helper keeps the session active until it exits. Processes launched by an unrelated broker, with elevation, or outside the group are not guaranteed to be tracked. If this RetroBat installation is already running outside StageBox, quit it first; StageBox refuses an untracked handoff. Closing StageBox leaves RetroBat running. StageBox's Start+Back game-kill action does not terminate RetroBat; use RetroBat's own exit controls.
 
-This integration launches the RetroBat frontend; it does not import ROM cards. StageBox uses SDL3 for its own controller input. Opt-in virtual input for native games is a separate later step.
+This integration launches the RetroBat frontend; it does not import ROM cards. StageBox uses SDL3 for its own controller input. Controllers saved as Virtual Xbox are passed through StageBox’s SDL-to-Xbox bridge for the entire RetroBat session; Native controllers stay native. See Controller Input below.
 
 ## Game Library Format
 
@@ -156,6 +176,7 @@ Fuller example:
   "advancedTracking": false,
   "waitAfterExitSeconds": 1,
   "showCursor": false,
+  "enableVirtualInput": false,
   "delayedKey": {
     "seconds": 4,
     "key": "Enter"
@@ -189,6 +210,7 @@ Important metadata notes:
 - `trackMode` can be omitted or set to `process` for normal process waiting. Use `processTree` for launchers that spawn the real game as a child process.
 - `advancedTracking` is optional and defaults to `false`. Set it to `true` on Windows for games whose launcher exits before the real game: StageBox attaches the initial executable to a Job Object before it runs, follows its child processes, and makes the kill shortcut terminate the group. It overrides `trackMode` for that game. A 30-second window-start/handoff grace and a 2-second window-free quiet period prevent invisible helpers from keeping the session open indefinitely; `waitAfterExitSeconds` adds a final delay. It cannot track a game started by an unrelated external service or already-running launcher. Disable it if a game is incompatible with Job Objects. Closing StageBox does not automatically kill the group.
 - `showCursor` should be enabled for games or launchers that need the Windows cursor visible.
+- `enableVirtualInput` is optional and defaults to `false`. Enable it manually for native games that require XInput; the card menu saves this field and launch re-reads it without requiring a library reload.
 - `keyMap` maps gamepad input to keyboard or mouse input while the game is running. See `keypad-sample.json` for a working sample.
 
 ## Steam Library
@@ -253,16 +275,46 @@ One selected controller drives StageBox, retained until it disconnects. The cont
 
 If SDL cannot load/initialize, StageBox logs the error and uses XInput/WinMM. When SDL has no mapped gamepads, the same native fallback can still handle a legacy joystick. SDL and native input are not combined for the same navigation frame. For troubleshooting, start StageBox with `STAGEBOX_CONTROLLER_BACKEND=legacy` to use the prior backend; remove that environment variable to use SDL3 again. SDL's device inventory can still include distinct virtual devices created by other controller software; no universal physical/virtual identity merge is claimed.
 
-SDL reads controllers, including native XInput controllers, for StageBox and its existing keyboard/mouse mappings. Games still read their controllers independently through Windows or their own input libraries. StageBox's SDL bridge does not forward the controller to the game, create a virtual Xbox controller or add `enableVirtualInput`. Steam and RetroBat continue managing their game input; native-game virtual translation and the hold-A card menu belong to step 3.
+SDL reads controllers, including native XInput controllers, for StageBox and its existing keyboard/mouse mappings. Native-default controllers remain available to games, Steam and RetroBat directly. Virtual-default controllers are normalized by StageBox’s SDL backend and forwarded as Xbox controllers for those sessions.
+
+### Controller defaults and mapping test
+
+When a new mapped non-XInput controller connects, StageBox asks whether to use it as **Native** or **Virtual Xbox**. Choose Native for a controller the game supports directly, such as a DualSense; choose Virtual Xbox for a generic pad that needs Xbox input. The choice is saved in `assets/controllers.json` beside StageBox and reused on reconnect. Native XInput controllers automatically stay native.
+
+Open **Start → Controllers** to change a saved default or select **Test controller mapping**. Each controller name includes a short ID so identical model names can be distinguished; the ID is also shown in its settings and test panel. The test shows a generic controller diagram with blank face buttons, live positional highlights, sticks and triggers. Face-button readouts use South/East/West/North rather than printed labels. Launcher actions pause during testing; hold Start+Back for one second, or use the mouse Back button or keyboard Escape to leave. The highlights show StageBox's normalized button positions, which can differ from the labels printed on a Nintendo-style pad.
+
+Virtual-default pads convert in native games, Steam from the topbar, direct Steam card launches and RetroBat. The game's hold-A switch additionally converts Native-default pads, so turning it off leaves Virtual-default pads virtual. This allows a supported DualSense to remain native alongside a generic virtual Xbox pad. Steam and RetroBat use only the controller’s saved Native/Virtual choice; there is no per-game switch for those sessions. Configure the pads before launching; defaults cannot be changed during a game.
+
+USB/Bluetooth modes can have separate identities. Without a reported serial number, StageBox uses the Windows interface path, so changing ports can require choosing a default again. Keep `assets/controllers.json` when updating StageBox. Profiles and the mapping test require SDL; legacy fallback provides navigation only.
+
+### Optional virtual Xbox input
+
+For a native game that needs or works better with Xbox/XInput controllers, select its card and **hold A for one second** to open Game Options. Turn **Virtual Xbox controller** on, then press B to return. A short A press launches on release. Right-click, the context-menu key or Shift+F10 also opens the native card menu. Enabled cards show a compact **XInput** wordmark in StageBox's accent color. The option saves `"enableVirtualInput": true` in that game's `lc.json`; omitted/false uses each controller's saved default. Turning it on additionally converts Native-default non-XInput controllers; Virtual-default controllers already use Xbox input. Steam cards and the Steam/RetroBat topbar sessions use the controller defaults directly; this per-game switch applies only to native cards.
+
+Copy the whole `assets/hidmaestro` directory beside `stagebox.exe`, keeping it paired with the executable from the same build. The bundle includes the helper, SDK, drivers/tools and a self-contained .NET runtime, so no separate .NET or ViGEmBus installation is needed. Windows still requires UAC approval when a session needs virtual devices. First use registers HIDMaestro's driver packages and locally trusted signing certificate; those stay installed after the session’s virtual devices are removed. See [HIDMaestro's driver documentation](https://hidmaestro.org/docs/reference/driver-install-and-signing/).
+
+Virtual input also uses **HidHide** to hide each converted physical controller from the game, preventing duplicate physical/virtual input. StageBox is temporarily allowlisted so SDL can keep reading it. The official HidHide 1.5.230 installer is included in the helper folder and installed by `install-stagebox.ps1` or the standalone `install-hidhide.ps1`; restart Windows once after a new install. Game launch only checks its availability and directs you to setup if it is missing. Existing installations are reused. [HidHide](https://github.com/nefarius/HidHide/releases/tag/v1.5.230.0) is a Windows filter driver, so its one-time system installation is required even with the portable bundle.
+
+StageBox verifies that the helper is denied access to the physical controller and StageBox can still open it before starting the game. It then forwards standard buttons, D-pad, sticks and triggers to an independent virtual Xbox 360 controller for each converted pad. On return it removes its virtual devices and restores the HidHide changes it made, preserving existing entries. A leftover `assets/hidhide-session.json` is recovered before controller polling on the next startup if the helper was forcibly terminated. Keep this recovery file until StageBox has restored it. Verified native SDL `XInput#` sources bypass virtual creation and hiding. Sessions with no controllers requiring conversion do not begin hiding. Steam/RetroBat virtual forwarding starts before their executable is launched and lasts through the tracked session, including games/emulators started inside them. Disconnects send neutral input and allow the same physical path to reconnect; the virtual pad cannot become its own source. Missing bundles, cancelled UAC or setup failures leave the game/frontend unopened with an error.
+
+This integration supports up to four converted controllers, subject to the four total Windows XInput slots including native Xbox pads. Connect your intended controllers before launching: the converted roster is fixed for the session and new unrelated pads are deferred until return; rumble forwarding is not included. HidHide's application list must use normal mode. StageBox refuses an inverted list or enabling a disabled list that would also hide unrelated configured devices. HidHide does not block Raw Input, so software using that API can still see the physical device. See its [FAQ](https://docs.nefarius.at/projects/HidHide/FAQ/). The user verified virtual forwarding in Blur; the user also verified physical hiding in a game that previously received double input. Mixed and multiple-controller sessions still need Windows validation.
+
+### Steam PS/Guide button prompts
+
+While StageBox is idle and focused, a PS/Guide press arms a short monitor for Steam taking foreground input. If a minimized Steam window takes focus, StageBox tries to restore launcher focus. A visible Steam prompt, including a controller firmware notice, gets pointer controls instead: left stick/D-pad moves the pointer, A clicks and B sends Escape. An instruction hint appears behind the prompt. Release the controls to neutral before using them after handoff.
+
+The helper stops when the prompt loses focus and restores launcher input when returning. It does not automatically dismiss visible prompts or run firmware updates. Active native games, Steam/RetroBat sessions, controller tests and Bluetooth pairing keep their own input handling. This recovery uses SDL Guide detection and needs verification with your Steam version; external firmware updater applications are outside its Steam-only scope.
+
+RetroBat's emulator-install confirmation can currently require keyboard input with a native DirectInput pad; this remains a low-priority pending issue.
 
 ## How To Use
 
 1. Start StageBox.
 2. Wait for the game grid to load local games and installed Steam games.
 3. Navigate with a controller D-pad/left stick or keyboard arrows.
-4. Press the controller `A` button or `Enter` to launch the selected game.
+4. Tap the controller `A` button or press `Enter` to launch the selected game. Hold A on a native card for its input options.
 5. StageBox shows a cinematic launch panel with the game's cached artwork, a green glow, and “Starting game…” until a visible game or intermediate launcher window appears, then hides and restores itself after the tracked session exits. Missing artwork uses an atmospheric moon-and-forest backdrop. Steam launches also show connection/update progress, with percentages only when available. Cursor settings, controller mapping targets, and delayed-key timing take effect at the window handoff.
-6. Open the tools menu for Bluetooth pairing, Wi-Fi networks, reloading games, opening the games folder, restart, power off, or exiting the launcher.
+6. Open the tools menu for Controllers settings/testing, Bluetooth pairing, Wi-Fi networks, reloading games, opening the games folder, restart, power off, or exiting the launcher.
 7. Use the Steam button in the top bar to open Steam Big Picture for controller navigation. If Steam is not found, StageBox downloads and starts the official Steam installer.
 8. Open Sound Settings from the tools menu to choose an output device. While StageBox is focused, right-stick up/down adjusts volume; the speaker indicator and temporary volume bar show the current level. Right-stick volume control is disabled during games. Keyboard multimedia volume/mute keys work system-wide, including games, without bringing StageBox to the foreground.
 9. Use the RetroBat button in the top bar to open your configured RetroBat installation. Quit RetroBat to return to StageBox.
@@ -284,8 +336,11 @@ make dep
 Command summary:
 
 - `make dev` starts Wails development mode.
+- `make help` lists build prerequisites, the Fedora SDK install command and SDK-path override.
+- `make virtual-helper-deps` checks Python 3.11+ and the selected .NET SDK 10+ without downloading or publishing anything.
 - `make build-linux` builds a Linux Wails binary for local development checks.
-- `make build-win` cross-builds `build/bin/stagebox.exe`.
+- `make virtual-helper` publishes the bundled Windows x64 helper and records its integrity manifest.
+- `make build-win` builds that helper, then cross-builds `build/bin/stagebox.exe`. Override `DOTNET` or `PYTHON` for custom tool locations.
 - `make release` creates the Windows staging bundle in `release/`.
 - `make dep` runs `go mod tidy` and refreshes `vendor/`.
 
@@ -316,3 +371,7 @@ Before making the repository public, add a top-level `LICENSE` file and update t
 The bundled [SDL3 runtime](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18) is distributed under its zlib license, retained at `internal/platform/controller/sdl/windows_amd64/LICENSE.txt` and extracted beside its cached runtime. Release URLs and verified SHA-256 digests are recorded in `internal/platform/controller/sdl/README.md`.
 
 The downloaded controller database comes from [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) under its zlib license, retained at `internal/platform/controller/sdl/gamecontrollerdb-LICENSE.txt` and copied to the executable-adjacent assets folder. StageBox embeds its license only; it does not embed a separate controller database.
+
+The optional helper bundles the pinned [HIDMaestro v1.11.0 SDK](https://github.com/hifihedgehog/HIDMaestro/releases/tag/v1.11.0), its verbatim MIT license and third-party notices, plus the self-contained .NET runtime's notices. Provenance, build steps and lifecycle details are recorded in `tools/hidmaestro/README.md`.
+
+The official HidHide 1.5.230 installer is distributed unmodified with its MIT license, retained at `tools/hidmaestro/LICENSE-HidHide.txt` and copied into the portable helper folder. Its pinned checksum matches [Microsoft's package manifest](https://github.com/microsoft/winget-pkgs/blob/master/manifests/n/Nefarius/HidHide/1.5.230/Nefarius.HidHide.installer.yaml).

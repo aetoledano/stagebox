@@ -9,3 +9,6 @@ sbrelease
 /cache/
 
 new_features
+
+/tools/hidmaestro/obj/
+/tools/hidmaestro/bin/

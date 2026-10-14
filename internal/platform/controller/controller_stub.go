@@ -2,7 +2,10 @@
 
 package controller
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type ControllerBridge struct{}
 type KeyboardBridge struct{}
@@ -14,7 +17,7 @@ type GameKeyMap struct {
 	MouseSensitivity int
 }
 
-func StartControllerBridge(ctx context.Context, volumeAction func(string), downloadDatabase bool) *ControllerBridge {
+func StartControllerBridge(ctx context.Context, volumeAction func(string), downloadDatabase bool, guideAction ...func(string)) *ControllerBridge {
 	return nil
 }
 func StartKeyboardBridge(ctx context.Context, volumeAction func(string)) *KeyboardBridge {
@@ -35,9 +38,25 @@ func (b *ControllerBridge) EnableGameKeyMap(keyMap GameKeyMap) bool {
 func (b *ControllerBridge) SetGameInputTargetPID(pid uint32) {}
 func (b *ControllerBridge) DisableGameKeyMap()               {}
 func (b *ControllerBridge) Stop()                            {}
-func (b *KeyboardBridge) Pause()                             {}
-func (b *KeyboardBridge) Resume()                            {}
-func (b *KeyboardBridge) Stop()                              {}
+func VirtualInputAvailability() (bool, string) {
+	return false, "Virtual Xbox input requires Windows x64."
+}
+func (b *ControllerBridge) EnableVirtualInput(context.Context, bool) error {
+	return fmt.Errorf("virtual Xbox input requires Windows x64")
+}
+func (b *ControllerBridge) DisableVirtualInput() error    { return nil }
+func (b *ControllerBridge) Controllers() []ControllerInfo { return []ControllerInfo{} }
+func (b *ControllerBridge) SetControllerDefault(string, string) error {
+	return fmt.Errorf("controller settings require Windows SDL input")
+}
+func (b *ControllerBridge) SelectController(string) error {
+	return fmt.Errorf("controller selection requires Windows SDL input")
+}
+func (b *ControllerBridge) TestController(string) error { return nil }
+func (b *ControllerBridge) NeedsVirtualInput(bool) bool { return false }
+func (b *KeyboardBridge) Pause()                        {}
+func (b *KeyboardBridge) Resume()                       {}
+func (b *KeyboardBridge) Stop()                         {}
 func LauncherHasFocus() bool {
 	// Non-Windows builds have no global input bridges; keep normal Wails actions available.
 	return true
@@ -50,3 +69,5 @@ func SendKeyStrokeToPID(pid uint32, key string) bool {
 	return false
 }
 func ConnectedCount() int { return 0 }
+
+func (b *ControllerBridge) IsTesting() bool { return false }

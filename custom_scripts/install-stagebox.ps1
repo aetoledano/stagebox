@@ -6,6 +6,7 @@
 
   Kept scripts after install:
   - install-stagebox.ps1
+  - install-hidhide.ps1
   - svc.vbs
   - systemsvcs.ps1
   - elevated-PS.cmd
@@ -130,6 +131,7 @@ function Log-AccountDiagnostics([string]$Account) {
 function Copy-StageBoxScripts {
   foreach ($file in @(
     "stagebox.exe",
+    "install-hidhide.ps1",
     "svc.vbs",
     "systemsvcs.ps1"
   )) {
@@ -142,6 +144,17 @@ function Copy-StageBoxScripts {
       Unblock-File -Path $dst -ErrorAction SilentlyContinue
       Log "copied $file"
     }
+  }
+  # Copy only the managed helper bundle; controller mappings/overrides are user-owned.
+  $helperSource = Join-Path $SourceDir "assets\hidmaestro"
+  $helperDestination = Join-Path $LauncherDir "assets\hidmaestro"
+  if (Test-Path -LiteralPath $helperSource -PathType Container) {
+    if ([IO.Path]::GetFullPath($helperSource) -ne [IO.Path]::GetFullPath($helperDestination)) {
+      New-Item -ItemType Directory -Path $helperDestination -Force | Out-Null
+      Get-ChildItem -LiteralPath $helperSource -File | Copy-Item -Destination $helperDestination -Force
+    }
+    Get-ChildItem -LiteralPath $helperDestination -File | Unblock-File -ErrorAction SilentlyContinue
+    Log "copied portable HIDMaestro/HidHide helper bundle"
   }
 }
 
@@ -363,6 +376,12 @@ Log-AccountDiagnostics $account
 
 Copy-StageBoxScripts
 Assert-StageBoxExecutable
+$hidHideScript = Join-Path $LauncherDir "install-hidhide.ps1"
+if (-not (Test-Path -LiteralPath $hidHideScript -PathType Leaf)) {
+  throw "install-hidhide.ps1 is missing. Keep the complete StageBox release bundle together and rerun installation."
+}
+Log "preparing HidHide before StageBox shell/task registration"
+$hidHideSetup = & $hidHideScript -LauncherDir $LauncherDir -LogPath $LogPath -PassThru
 Write-StageBoxConfig
 Remove-LegacyFiles
 
@@ -386,3 +405,6 @@ Configure-AutoLogon $account
 Register-Shell
 
 Log "----- install end -----"
+if ($hidHideSetup.RebootRequired) {
+  Log "Restart Windows once to finish HidHide driver setup before using StageBox virtual input."
+}

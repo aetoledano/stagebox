@@ -22,12 +22,14 @@ type GameData struct {
 	ShowCursor           bool        `json:"showCursor"`
 	TrackMode            string      `json:"trackMode"`
 	AdvancedTracking     bool        `json:"advancedTracking"`
+	EnableVirtualInput   bool        `json:"enableVirtualInput"`
 	WaitAfterExitSeconds float64     `json:"waitAfterExitSeconds"`
 	DelayedKey           *DelayedKey `json:"delayedKey"`
 	KeyMap               *KeyMap     `json:"keyMap"`
 	steamManifest        string
 	steamConfigPath      string
 	steamDefaults        *GameData
+	nativeConfigPath     string
 }
 
 type DelayedKey struct {

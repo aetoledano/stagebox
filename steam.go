@@ -47,6 +47,15 @@ func (a *App) launchSteamSession(steamExe string) {
 	if !a.beginGameSession("Steam") {
 		return
 	}
+	if a.pad != nil && a.pad.NeedsVirtualInput(false) {
+		runtime.EventsEmit(a.ctx, "game:launch-begin", map[string]any{"id": "steam", "name": "Steam"})
+		if err := a.prepareSessionVirtualInput("steam", "Steam", false); err != nil {
+			a.endGameSession()
+			lgx.Warnf("Steam controller setup blocked: %v", err)
+			runtime.EventsEmit(a.ctx, "game:launch-blocked", map[string]any{"id": "steam", "name": "Steam", "error": err.Error()})
+			return
+		}
+	}
 	a.pauseKeyboardInput()
 	if a.pad != nil {
 		a.pad.Pause()
@@ -64,13 +73,15 @@ func (a *App) launchSteamSession(steamExe string) {
 	go func() {
 		defer a.endGameSession()
 		err := <-run.Done
-		if err != nil {
-			lgx.Errorf("Steam session ended with error: %v", err)
-		} else {
-			lgx.Info("Steam session ended")
-		}
 		if uiErr := games.BackgroundSteamClient(a.ctx, steamExe); uiErr != nil {
 			lgx.Warnf("Steam UI cleanup before launcher return failed: %v", uiErr)
+		}
+		err = a.finishSessionVirtualInput("Steam", err)
+		if err != nil {
+			lgx.Errorf("Steam session ended with error: %v", err)
+			runtime.EventsEmit(a.ctx, "game:launch-error", map[string]any{"id": "steam", "name": "Steam", "error": err.Error()})
+		} else {
+			lgx.Info("Steam session ended")
 		}
 
 		cursor.RestoreSystemCursor()

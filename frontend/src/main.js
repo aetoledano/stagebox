@@ -2,6 +2,8 @@ import "./css/base.css";
 import "./css/cards.css";
 import "./css/topbar.css";
 import "./css/sound.css";
+import "./css/gameOptions.css";
+import "./css/controllers.css";
 import { OpenRetroBat, OpenSteam, Shutdown, Restart, ExitLauncher, OpenBluetoothPairing, LoadGames, Launch, SteamUpdateStates, Explorer, GetStatuses, Info, Warn, Error } from "/wailsjs/go/main/App.js";
 import { EventsOn } from "/wailsjs/runtime";
 import { initBTIndicator } from "./features/bluetooth.js";
@@ -15,7 +17,19 @@ import controllerIconURL from "./assets/images/controller-ico-2.png";
 import keyboardMouseIconURL from "./assets/images/kbm-ico.png";
 import steamIconURL from "./assets/images/steam-ico.svg";
 import updateIconURL from "./assets/images/update-ico.svg";
+import xinputIconURL from "./assets/images/xinput-wordmark.png";
 import { initLaunchFeedback } from "./features/launchFeedback.js";
+import { initGameOptions, openGameOptions } from "./features/gameOptions.js";
+import { initControllers, openControllers } from "./features/controllers.js";
+
+const steamGuideHint = document.createElement("aside");
+steamGuideHint.className = "steam-guide-hint";
+steamGuideHint.hidden = true;
+steamGuideHint.textContent = "Steam dialog · Stick / D-pad: move pointer · A: click · B: Escape";
+steamGuideHint.setAttribute("role", "status");
+document.body.append(steamGuideHint);
+EventsOn("steam:guide-input", ({ active }) => { steamGuideHint.hidden = !active; });
+EventsOn("game:launch-begin", () => { steamGuideHint.hidden = true; });
 
 // build topbar once (or keep your existing HTML)
 document.querySelector("#btn-reload")?.addEventListener("click", () => window.location.reload());
@@ -29,6 +43,7 @@ document.querySelector("#btn-sound-settings")?.addEventListener("click", () => {
   closeMenu();
   openSoundSettings();
 });
+document.querySelector("#btn-controllers")?.addEventListener("click", () => { closeMenu(); openControllers(); });
 document.querySelector("#btn-restart")?.addEventListener("click", () => Restart());
 document.querySelector("#btn-shutdown")?.addEventListener("click", () => Shutdown());
 document.querySelector("#btn-explorer")?.addEventListener("click", () => Explorer());
@@ -71,6 +86,7 @@ function normalizeGame(g, fallbackID = "") {
     imageHash: g.imageHash ?? g.ImageHash ?? "",
     steamAppId: g.steamAppId ?? g.SteamAppID ?? 0,
     steamNeedsUpdate: g.steamNeedsUpdate ?? g.SteamNeedsUpdate ?? false,
+    enableVirtualInput: g.enableVirtualInput ?? g.EnableVirtualInput ?? false,
   };
 }
 
@@ -202,18 +218,38 @@ function upsertCard(rawGame) {
     body.append(titleRow);
     card.append(img, body, steamBadge);
 
+    const virtualBadge = document.createElement("span");
+    virtualBadge.className = "virtual-input-badge";
+    const virtualIcon = document.createElement("span");
+    virtualIcon.className = "virtual-input-logo";
+    virtualIcon.style.setProperty("--xinput-logo", `url("${xinputIconURL}")`);
+    virtualIcon.setAttribute("aria-hidden", "true");
+    virtualBadge.append(virtualIcon);
+    virtualBadge.title = "Virtual Xbox input enabled for this game";
+    virtualBadge.setAttribute("aria-label", virtualBadge.title);
+    virtualBadge.setAttribute("role", "img");
+    virtualBadge.hidden = true;
+    card.append(virtualBadge);
+
     card.addEventListener("click", () => Launch(g.id).catch(console.error));
     card.addEventListener("keydown", (e) => {
+      if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+        e.preventDefault(); openGameOptions(card); return;
+      }
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         Launch(g.id).catch(console.error);
       }
     });
+    card.addEventListener("contextmenu", (event) => { event.preventDefault(); openGameOptions(card); });
 
     cardsByID.set(g.id, card);
   }
 
   card.dataset.name = g.name || "";
+  card.dataset.steamAppId = String(g.steamAppId || 0);
+  card.dataset.enableVirtualInput = String(!g.steamAppId && !!g.enableVirtualInput);
+  card.querySelector(".virtual-input-badge").hidden = !!g.steamAppId || !g.enableVirtualInput;
   card.dataset.thumbnailUrl = g.thumbnailUrl || "";
   card.querySelector(".steam-corner-badge").hidden = !g.steamAppId;
   card.querySelector(".title").textContent = g.name || "";
@@ -287,6 +323,7 @@ function repaintGridAfterRestore() {
 initLaunchFeedback(() => controllerFocusGrid(), (id) => ({
   thumbnailUrl: cardsByID.get(id)?.dataset.thumbnailUrl || "",
 }));
+initGameOptions(() => controllerFocusGrid());
 controllerInit({
   getCards: () => [...document.querySelectorAll(".content .grid .card, .content .scrollport .grid .card")],
   getBarButtons: () => [...document.querySelectorAll(".topbar .btn")],
@@ -297,6 +334,12 @@ controllerInit({
 });
 
 EventsOn("game:loaded", upsertCard);
+EventsOn("game:options-changed", ({ id, enableVirtualInput }) => {
+  const card = cardsByID.get(id);
+  if (!card || card.dataset.steamAppId !== "0") return;
+  card.dataset.enableVirtualInput = String(!!enableVirtualInput);
+  card.querySelector(".virtual-input-badge").hidden = !enableVirtualInput;
+});
 EventsOn("game:update-status", ({ id, needsUpdate }) => {
   const card = cardsByID.get(id);
   if (card) setUpdateNeeded(card, needsUpdate);
@@ -350,6 +393,7 @@ async function loadAndShow() {
 initTopbarMenu({ onClose: () => controllerFocusGrid() });
 initWifiDialog({ onClose: () => controllerFocusGrid() });
 initSoundSettings({ onClose: () => controllerFocusGrid() });
+initControllers(() => controllerFocusGrid());
 initBTIndicator();
 GetStatuses().then((s) => setDebugToolsVisible(!!s.debug)).catch(() => setDebugToolsVisible(false));
 loadAndShow();

@@ -7,6 +7,7 @@ import (
 	lgx "launcher/internal/logx"
 	"runtime"
 	"slices"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -23,8 +24,17 @@ type sdlBackend struct {
 	pump, flush, getGamepads, free, open, close, connected          *windows.Proc
 	button, axis, name, addMappings                                 *windows.Proc
 	ioFromConstMem                                                  *windows.Proc
+	joystickPath                                                    *windows.Proc
+	serial, realType                                                *windows.Proc
 	mapping, getJoysticks, joystickName, vendor, product, isGamepad *windows.Proc
 	gamepads                                                        map[uint32]uintptr
+	paths                                                           map[uint32]string
+	info                                                            map[uint32]ControllerInfo
+	states                                                          map[uint32]xinputGamepad
+	guides                                                          map[uint32]bool
+	guidePressed                                                    uint32
+	virtualSourcePaths                                              []string
+	virtualKnownPaths                                               map[string]bool
 	joysticks                                                       map[uint32]bool
 	activeID                                                        uint32
 	nextDiscovery                                                   time.Time
@@ -48,7 +58,7 @@ func openSDLBackend() (*sdlBackend, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load SDL3 runtime: %w", err)
 	}
-	s := &sdlBackend{dll: &windows.DLL{Name: path, Handle: handle}, gamepads: make(map[uint32]uintptr), joysticks: make(map[uint32]bool)}
+	s := &sdlBackend{dll: &windows.DLL{Name: path, Handle: handle}, gamepads: make(map[uint32]uintptr), paths: make(map[uint32]string), info: make(map[uint32]ControllerInfo), states: make(map[uint32]xinputGamepad), guides: make(map[uint32]bool), joysticks: make(map[uint32]bool)}
 	ready := false
 	defer func() {
 		if !ready {
@@ -67,6 +77,8 @@ func openSDLBackend() (*sdlBackend, error) {
 		{"SDL_GetGamepadAxis", &s.axis}, {"SDL_GetGamepadName", &s.name},
 		{"SDL_AddGamepadMappingsFromIO", &s.addMappings},
 		{"SDL_IOFromConstMem", &s.ioFromConstMem},
+		{"SDL_GetJoystickPathForID", &s.joystickPath},
+		{"SDL_GetGamepadSerial", &s.serial}, {"SDL_GetRealGamepadType", &s.realType},
 		{"SDL_GetGamepadMapping", &s.mapping}, {"SDL_GetJoysticks", &s.getJoysticks},
 		{"SDL_GetJoystickNameForID", &s.joystickName}, {"SDL_GetJoystickVendorForID", &s.vendor},
 		{"SDL_GetJoystickProductForID", &s.product}, {"SDL_IsGamepad", &s.isGamepad},
@@ -229,6 +241,7 @@ func (s *sdlBackend) rebuildMappings(files []controllerMappingFile) error {
 }
 
 func (s *sdlBackend) poll(now time.Time) (xinputGamepad, uint32, int, error) {
+	s.guidePressed = 0
 	if err := s.checkMappingChanges(now); err != nil {
 		return xinputGamepad{}, 0, 0, err
 	}
@@ -254,18 +267,32 @@ func (s *sdlBackend) poll(now time.Time) (xinputGamepad, uint32, int, error) {
 		if connected&0xff == 0 {
 			s.close.Call(handle)
 			delete(s.gamepads, id)
+			delete(s.paths, id)
+			delete(s.info, id)
+			delete(s.states, id)
+			delete(s.guides, id)
 			s.nextDiscovery = time.Time{}
 			lgx.Infof("SDL3 gamepad disconnected id=%d", id)
 		} else {
+			s.states[id] = s.readState(handle)
+			guide, _, _ := s.button.Call(handle, 5) // SDL_GAMEPAD_BUTTON_GUIDE; kept out of the XInput payload.
+			down := guide&0xff != 0
+			if down && !s.guides[id] {
+				s.guidePressed = id
+			}
+			s.guides[id] = down
 			ids = append(ids, id)
 		}
 	}
 	slices.Sort(ids)
 	s.activeID = selectGamepadID(s.activeID, ids)
 	if s.activeID == 0 {
-		return xinputGamepad{}, 0, 0, nil
+		return xinputGamepad{}, 0, len(s.gamepads), nil
 	}
-	handle := s.gamepads[s.activeID]
+	return s.states[s.activeID], s.activeID, len(s.gamepads), nil
+}
+
+func (s *sdlBackend) readState(handle uintptr) xinputGamepad {
 	var buttons uint32
 	for index := range sdlButtonMasks {
 		pressed, _, _ := s.button.Call(handle, uintptr(index))
@@ -278,7 +305,7 @@ func (s *sdlBackend) poll(now time.Time) (xinputGamepad, uint32, int, error) {
 		value, _, _ := s.axis.Call(handle, uintptr(index))
 		axes[index] = int16(value)
 	}
-	return normalizedSDLGamepad(buttons, axes), s.activeID, len(ids), nil
+	return normalizedSDLGamepad(buttons, axes)
 }
 
 func (s *sdlBackend) refresh() error {
@@ -297,24 +324,91 @@ func (s *sdlBackend) refresh() error {
 		if id == 0 || s.gamepads[id] != 0 {
 			continue
 		}
+		pathPtr, _, _ := s.joystickPath.Call(uintptr(id))
+		path := ""
+		if pathPtr != 0 {
+			path = windows.BytePtrToString((*byte)(unsafe.Pointer(pathPtr)))
+		}
+		// During translation only pre-existing physical paths and the owned
+		// sources' reconnect paths may enter our inventory. The helper's new
+		// virtual pad can never become an input source, including on hotplug.
+		if len(s.virtualSourcePaths) > 0 && !s.virtualKnownPaths[path] {
+			continue
+		}
 		handle, _, _ := s.open.Call(uintptr(id))
 		if handle == 0 {
 			lgx.Debugf("SDL3 gamepad open deferred id=%d err=%s", id, s.errorText())
 			continue
 		}
 		s.gamepads[id] = handle
+		guide, _, _ := s.button.Call(handle, 5)
+		s.guides[id] = guide&0xff != 0 // A held button on connection is not a new press.
+		s.paths[id] = path
 		ptr, _, _ := s.name.Call(handle)
 		name := ""
 		if ptr != 0 {
 			name = windows.BytePtrToString((*byte)(unsafe.Pointer(ptr)))
 		}
-		lgx.Infof("SDL3 gamepad connected id=%d name=%q", id, name)
+		vendor, _, _ := s.vendor.Call(uintptr(id))
+		product, _, _ := s.product.Call(uintptr(id))
+		serialPtr, _, _ := s.serial.Call(handle)
+		serial := ""
+		if serialPtr != 0 {
+			serial = windows.BytePtrToString((*byte)(unsafe.Pointer(serialPtr)))
+		}
+		kind, _, _ := s.realType.Call(handle)
+		connection := "USB / other"
+		lowerPath := strings.ToLower(path)
+		if strings.Contains(lowerPath, "bth") || strings.Contains(lowerPath, "00001124") {
+			connection = "Bluetooth"
+		}
+		native := strings.HasPrefix(lowerPath, "xinput#")
+		if native {
+			connection = "XInput"
+		}
+		s.info[id] = ControllerInfo{ID: controllerIdentity(path, serial, uint16(vendor), uint16(product), connection), Name: name, Connection: connection, Connected: true, NativeXInput: native}
+		lgx.Debugf("SDL3 physical controller identity id=%s type=%d serialAvailable=%t", s.info[id].ID, kind, serial != "")
+		lgx.Infof("SDL3 gamepad connected id=%d name=%q path=%q", id, name, path)
 		if mapping, _, _ := s.mapping.Call(handle); mapping != 0 {
 			lgx.Infof("SDL3 gamepad mapping id=%d mapping=%q", id, windows.BytePtrToString((*byte)(unsafe.Pointer(mapping))))
 			s.free.Call(mapping)
 		}
 	}
 	return nil
+}
+
+func (s *sdlBackend) setVirtualSources(paths []string) {
+	if slices.Equal(s.virtualSourcePaths, paths) {
+		return
+	}
+	s.virtualSourcePaths = slices.Clone(paths)
+	s.virtualKnownPaths = make(map[string]bool)
+	if len(paths) > 0 {
+		for _, path := range paths {
+			s.virtualKnownPaths[path] = true
+		}
+		for _, p := range s.paths {
+			if p != "" {
+				s.virtualKnownPaths[p] = true
+			}
+		}
+	}
+	s.nextDiscovery = time.Time{}
+}
+
+func (s *sdlBackend) inventory() []controllerDevice {
+	ids := make([]uint32, 0, len(s.gamepads))
+	for id := range s.gamepads {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	result := make([]controllerDevice, 0, len(ids))
+	for _, id := range ids {
+		info := s.info[id]
+		info.Active = id == s.activeID
+		result = append(result, controllerDevice{info: info, path: s.paths[id], state: s.states[id], instance: id})
+	}
+	return result
 }
 
 // Log each physical/virtual SDL joystick once, including unmapped devices that
@@ -365,6 +459,10 @@ func (s *sdlBackend) closeInput() {
 		s.initialized = false
 	}
 	s.activeID = 0
+	s.paths = make(map[uint32]string)
+	s.info = make(map[uint32]ControllerInfo)
+	s.states = make(map[uint32]xinputGamepad)
+	s.guides = make(map[uint32]bool)
 	s.nextDiscovery = time.Time{}
 	s.joysticks = make(map[uint32]bool)
 	s.failures = 0

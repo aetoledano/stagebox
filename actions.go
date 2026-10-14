@@ -68,6 +68,9 @@ func (a *App) OpenBluetoothPairing() error {
 	}
 	a.pairingActive = true
 	a.pairingMu.Unlock()
+	a.gameSessionMu.Lock()
+	a.clearSteamGuideInputLocked(false)
+	a.gameSessionMu.Unlock()
 
 	wizard := filepath.Join(os.Getenv("WINDIR"), "System32", "DevicePairingWizard.exe")
 	cmd := exec.Command(wizard)

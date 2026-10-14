@@ -71,6 +71,62 @@ export namespace audio {
 
 }
 
+export namespace controller {
+	
+	export class ControllerInfo {
+	    id: string;
+	    name: string;
+	    connection: string;
+	    mode: string;
+	    known: boolean;
+	    connected: boolean;
+	    active: boolean;
+	    nativeXInput: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ControllerInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.connection = source["connection"];
+	        this.mode = source["mode"];
+	        this.known = source["known"];
+	        this.connected = source["connected"];
+	        this.active = source["active"];
+	        this.nativeXInput = source["nativeXInput"];
+	    }
+	}
+
+}
+
+export namespace main {
+	
+	export class GameOptions {
+	    id: string;
+	    name: string;
+	    enableVirtualInput: boolean;
+	    virtualInputAvailable: boolean;
+	    virtualInputMessage: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GameOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.enableVirtualInput = source["enableVirtualInput"];
+	        this.virtualInputAvailable = source["virtualInputAvailable"];
+	        this.virtualInputMessage = source["virtualInputMessage"];
+	    }
+	}
+
+}
+
 export namespace wifi {
 	
 	export class Network {

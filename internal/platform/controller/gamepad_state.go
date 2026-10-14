@@ -2,7 +2,7 @@ package controller
 
 // The existing input processing uses this XInput-compatible layout, regardless
 // of the input backend. This struct is also the native XInput ABI payload; it
-// does not expose or create a virtual controller.
+// can also be sent to the opt-in native-game virtual controller helper.
 type xinputGamepad struct {
 	wButtons      uint16
 	bLeftTrigger  byte

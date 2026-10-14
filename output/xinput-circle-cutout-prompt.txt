@@ -1,0 +1,5 @@
+Built-in image_gen tool; edit mode; transparent_background=true.
+Input: user-provided circular cyan XInput emblem (October 12, 2026).
+Final asset: frontend/src/assets/images/xinput-circle.png
+
+Use case: background-extraction. Edit target: the latest attached square image showing a glowing cyan circular XInput emblem with four Xbox-position buttons. Extract that outer circular emblem and ALL its interior artwork as one transparent-background icon. Preserve the design faithfully: cyan outer ring and concentric details, dark patterned interior, Y yellow at top, X blue at left, B red at right, A green at bottom, and exact cyan text 'XInput' across the bottom inside the circle. Keep the lettering, button positions, proportions and colors unchanged. Remove only the square background outside the outer circle. Keep a small soft cyan glow immediately around the circumference, fading into real alpha transparency; no opaque black square, no checkerboard baked into pixels. Center the complete circle on a square transparent canvas with a narrow even margin. No new elements or redesign. This is for a compact game-card badge.

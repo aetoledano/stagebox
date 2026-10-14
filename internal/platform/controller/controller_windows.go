@@ -181,24 +181,32 @@ func loadLegacyJoystick() error {
 }
 
 type ControllerBridge struct {
-	ctx               context.Context
-	cancel            context.CancelFunc
-	paused            atomic.Int32 // 0 = running, 1 = paused
-	resetInput        atomic.Bool
-	quit              chan struct{}
-	stopOnce          sync.Once
-	mouse             atomic.Int32 // 0 = launcher events, 1 = OS cursor mode
-	keyboard          atomic.Int32 // 0 = launcher events, 1 = pairing keyboard mode
-	gameKeys          atomic.Int32 // 0 = launcher events, 1 = game key-map mode
-	inputTargetPID    atomic.Uint32
-	inputTargetWindow atomic.Uintptr
-	volumeAction      func(string)
-	keyBindings       []gameKeyBinding
-	keyBindingsMu     sync.Mutex
-	activeGameKeys    map[byte]bool
-	mouseStick        string
-	mouseStepX        int
-	mouseStepY        int
+	ctx                               context.Context
+	cancel                            context.CancelFunc
+	paused                            atomic.Int32 // 0 = running, 1 = paused
+	resetInput                        atomic.Bool
+	quit                              chan struct{}
+	stopOnce                          sync.Once
+	mouse                             atomic.Int32 // 0 = launcher events, 1 = OS cursor mode
+	keyboard                          atomic.Int32 // 0 = launcher events, 1 = pairing keyboard mode
+	gameKeys                          atomic.Int32 // 0 = launcher events, 1 = game key-map mode
+	inputTargetPID                    atomic.Uint32
+	inputTargetWindow                 atomic.Uintptr
+	volumeAction                      func(string)
+	guideAction                       func(string)
+	virtualInput                      atomic.Pointer[virtualInputSession]
+	preferences                       *controllerPreferenceStore
+	inventory                         atomic.Pointer[controllerInventory]
+	testing                           atomic.Pointer[controllerTestRequest]
+	selectController                  atomic.Pointer[controllerTestRequest]
+	nextInventoryEvent, nextTestEvent time.Time // SDL owner only
+	aPressed                          bool      // physical A edge, owned by poller
+	keyBindings                       []gameKeyBinding
+	keyBindingsMu                     sync.Mutex
+	activeGameKeys                    map[byte]bool
+	mouseStick                        string
+	mouseStepX                        int
+	mouseStepY                        int
 	// Edge/hold state is owned by the polling loop.
 	prevButtons uint16
 	holdDir     string
@@ -210,7 +218,7 @@ type ControllerBridge struct {
 	killArmed   bool
 }
 
-func StartControllerBridge(ctx context.Context, volumeAction func(string), downloadDatabase bool) *ControllerBridge {
+func StartControllerBridge(ctx context.Context, volumeAction func(string), downloadDatabase bool, guideAction ...func(string)) *ControllerBridge {
 	ctx, cancel := context.WithCancel(ctx)
 	b := &ControllerBridge{
 		ctx:          ctx,
@@ -218,8 +226,19 @@ func StartControllerBridge(ctx context.Context, volumeAction func(string), downl
 		quit:         make(chan struct{}),
 		volumeAction: volumeAction,
 	}
+	if len(guideAction) > 0 {
+		b.guideAction = guideAction[0]
+	}
+	var err error
+	b.preferences, err = newControllerPreferenceStore()
+	if err != nil {
+		lgx.Warnf("controller preferences unavailable: %v", err)
+	}
 	go ensureControllerDatabase(ctx, downloadDatabase)
-	go b.loop()
+	go func() {
+		recoverVirtualInputState(ctx)
+		b.loop()
+	}()
 	return b
 }
 
@@ -577,6 +596,9 @@ func (b *ControllerBridge) loop() {
 		lgx.Warnf("WinMM joystick fallback unavailable: %v", err)
 	}
 	defer func() {
+		if err := b.DisableVirtualInput(); err != nil {
+			lgx.Warnf("virtual input shutdown: %v", err)
+		}
 		b.releaseGameInputs()
 		connectedControllers.Store(0)
 		if sdl != nil {
@@ -590,9 +612,11 @@ func (b *ControllerBridge) loop() {
 	var volumeStick volumeStickState
 	var deviceID uint64
 	var mappingRevision uint64
+	var lastLauncherFocus time.Time
 	var nextNativeCount time.Time
 	nativeCount := 0
 	resetDevice := func() {
+		b.cancelPhysicalA()
 		b.releaseGameInputs()
 		b.prevGamepad = xinputGamepad{}
 		b.prevButtons, b.holdDir = 0, ""
@@ -615,22 +639,61 @@ func (b *ControllerBridge) loop() {
 		case <-t.C:
 		}
 		if b.resetInput.Swap(false) {
+			b.cancelPhysicalA()
 			volumeStick.reset()
 			b.prevButtons = 0
 			b.holdDir = ""
 			b.nextRepeat = time.Time{}
+			b.killCombo = time.Time{}
+			b.killArmed = false
 			launcherGate.reset()
+			deviceGate.reset()
 		}
 
 		now := time.Now()
+		guideAllowed := b.paused.Load() == 0 && b.mouse.Load() == 0 && b.keyboard.Load() == 0 && b.gameKeys.Load() == 0 && b.testing.Load() == nil
+		if guideAllowed && LauncherHasFocus() {
+			lastLauncherFocus = now
+		}
 		var gp xinputGamepad
 		var currentID uint64
 		ok := false
+		virtual := b.virtualInput.Load()
 		if sdl != nil {
+			if selected := b.selectController.Swap(nil); selected != nil {
+				for id, info := range sdl.info {
+					if info.ID == selected.id {
+						sdl.activeID = id
+						break
+					}
+				}
+			}
+			if virtual != nil {
+				sdl.setVirtualSources(virtual.sourcePaths)
+				virtual.pinOnce.Do(func() { close(virtual.pinned) })
+			} else {
+				sdl.setVirtualSources(nil)
+			}
 			state, id, count, err := sdl.poll(now)
+			if err == nil && sdl.guidePressed != 0 && guideAllowed && now.Sub(lastLauncherFocus) <= 150*time.Millisecond && b.guideAction != nil {
+				b.guideAction(sdl.info[sdl.guidePressed].ID) // Callback only queues work; no Steam/window IO on SDL's owner.
+			}
 			if sdl.mappingRevision != mappingRevision {
 				resetDevice()
+				if virtual != nil {
+					virtual.resetGates()
+				}
 				mappingRevision = sdl.mappingRevision
+			}
+			if err == nil {
+				devices := sdl.inventory()
+				b.publishInventory(devices, now)
+				if virtual != nil {
+					virtual.publishDevices(devices)
+				}
+			}
+			if virtual != nil {
+				connectedControllers.Store(int32(count))
 			}
 			if err != nil {
 				lgx.Warnf("SDL3 input failed; switching to legacy XInput/WinMM: %v", err)
@@ -641,7 +704,13 @@ func (b *ControllerBridge) loop() {
 				connectedControllers.Store(int32(count))
 			}
 		}
-		if !ok {
+		if sdl == nil {
+			b.publishInventory(nil, now)
+			if virtual != nil {
+				virtual.publishDevices(nil)
+			}
+		}
+		if !ok && virtual == nil {
 			gp, ok = b.pollXInputGamepad(lastConn)
 			if ok {
 				lastConn = now
@@ -669,11 +738,21 @@ func (b *ControllerBridge) loop() {
 			}
 			lgx.Infof("controller input device changed backend=%s id=%d", backend, uint32(currentID))
 		}
+		if b.testing.Load() != nil {
+			b.cancelPhysicalA()
+			b.prevButtons = 0
+			continue
+		}
 		if !ok {
+			if virtual != nil && sdl == nil {
+				connectedControllers.Store(0)
+			}
+			b.cancelPhysicalA()
 			continue
 		}
 		// Never inherit another pad's edges, held kill combo or mapped keys.
 		if !deviceGate.allow(true, gamepadNeutral(gp)) {
+			b.cancelPhysicalA()
 			continue
 		}
 
@@ -682,6 +761,7 @@ func (b *ControllerBridge) loop() {
 
 		both := (buttons&XINPUT_GAMEPAD_START) != 0 && (buttons&XINPUT_GAMEPAD_BACK) != 0
 		if both {
+			b.cancelPhysicalA()
 			volumeStick.reset()
 			launcherGate.reset()
 			if !b.killArmed {
@@ -700,6 +780,7 @@ func (b *ControllerBridge) loop() {
 		b.killArmed = false
 
 		if b.mouse.Load() == 1 {
+			b.cancelPhysicalA()
 			volumeStick.reset()
 			launcherGate.reset()
 			b.handleMouseMode(gp, buttons, just)
@@ -708,6 +789,7 @@ func (b *ControllerBridge) loop() {
 			continue
 		}
 		if b.keyboard.Load() == 1 {
+			b.cancelPhysicalA()
 			volumeStick.reset()
 			launcherGate.reset()
 			b.handlePairingKeyboardMode(gp, buttons, just)
@@ -716,6 +798,7 @@ func (b *ControllerBridge) loop() {
 			continue
 		}
 		if b.gameKeys.Load() == 1 {
+			b.cancelPhysicalA()
 			volumeStick.reset()
 			launcherGate.reset()
 			b.handleGameKeyMap(gp, buttons, just)
@@ -732,6 +815,7 @@ func (b *ControllerBridge) loop() {
 		}
 		neutral := buttons == 0 && lx*lx+ly*ly < dz*dz
 		if !launcherGate.allow(enabled, neutral) {
+			b.cancelPhysicalA()
 			b.holdDir = ""
 			b.nextRepeat = time.Time{}
 			b.prevGamepad = gp
@@ -783,7 +867,12 @@ func (b *ControllerBridge) loop() {
 
 		// Buttons
 		if just(XINPUT_GAMEPAD_A) {
-			runtime.EventsEmit(b.ctx, "pad:press", "A")
+			b.aPressed = true
+			runtime.EventsEmit(b.ctx, "pad:button", map[string]any{"name": "A", "down": true})
+		}
+		if b.aPressed && buttons&XINPUT_GAMEPAD_A == 0 {
+			b.aPressed = false
+			runtime.EventsEmit(b.ctx, "pad:button", map[string]any{"name": "A", "down": false})
 		}
 		if just(XINPUT_GAMEPAD_B) {
 			runtime.EventsEmit(b.ctx, "pad:press", "B")
@@ -800,6 +889,13 @@ func (b *ControllerBridge) loop() {
 
 		b.prevGamepad = gp
 		b.prevButtons = buttons
+	}
+}
+
+func (b *ControllerBridge) cancelPhysicalA() {
+	if b.aPressed {
+		b.aPressed = false
+		runtime.EventsEmit(b.ctx, "pad:button", map[string]any{"name": "A", "down": false, "cancelled": true})
 	}
 }
 

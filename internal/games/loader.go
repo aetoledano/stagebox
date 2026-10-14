@@ -134,6 +134,7 @@ func loadGame(gamePath string, opts LoadOptions) (*GameData, error) {
 	if err := jsonx.LoadJSONFile(lcPath, &gd); err != nil {
 		return nil, err
 	}
+	gd.nativeConfigPath = lcPath
 	if gd.ID == uuid.Nil {
 		gd.ID = deterministicGameID(gamePath, gd.Name)
 	}
