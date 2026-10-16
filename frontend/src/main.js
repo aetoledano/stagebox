@@ -4,7 +4,8 @@ import "./css/topbar.css";
 import "./css/sound.css";
 import "./css/gameOptions.css";
 import "./css/controllers.css";
-import { OpenRetroBat, OpenSteam, Shutdown, Restart, ExitLauncher, OpenBluetoothPairing, LoadGames, Launch, SteamUpdateStates, Explorer, GetStatuses, Info, Warn, Error } from "/wailsjs/go/main/App.js";
+import "./css/bluetoothDevices.css";
+import { OpenRetroBat, OpenSteam, Shutdown, Restart, ExitLauncher, LoadGames, Launch, SteamUpdateStates, Explorer, GetStatuses, Info, Warn, Error } from "/wailsjs/go/main/App.js";
 import { EventsOn } from "/wailsjs/runtime";
 import { initBTIndicator } from "./features/bluetooth.js";
 import { startClock } from "./features/clock.js";
@@ -21,6 +22,7 @@ import xinputIconURL from "./assets/images/xinput-wordmark.png";
 import { initLaunchFeedback } from "./features/launchFeedback.js";
 import { initGameOptions, openGameOptions } from "./features/gameOptions.js";
 import { initControllers, openControllers } from "./features/controllers.js";
+import { initBluetoothDevices, openBluetoothDevices } from "./features/bluetoothDevices.js";
 
 const steamGuideHint = document.createElement("aside");
 steamGuideHint.className = "steam-guide-hint";
@@ -34,7 +36,6 @@ EventsOn("game:launch-begin", () => { steamGuideHint.hidden = true; });
 // build topbar once (or keep your existing HTML)
 document.querySelector("#btn-reload")?.addEventListener("click", () => window.location.reload());
 document.querySelector("#btn-debug-exit")?.addEventListener("click", () => ExitLauncher().catch(console.error));
-document.querySelector("#btn-debug-bt-pairing")?.addEventListener("click", () => OpenBluetoothPairing().catch(console.error));
 document.querySelector("#btn-wifi-networks")?.addEventListener("click", () => {
   closeMenu();
   openWifiDialog();
@@ -44,6 +45,7 @@ document.querySelector("#btn-sound-settings")?.addEventListener("click", () => {
   openSoundSettings();
 });
 document.querySelector("#btn-controllers")?.addEventListener("click", () => { closeMenu(); openControllers(); });
+document.querySelector("#btn-bluetooth-devices")?.addEventListener("click", () => { closeMenu(); openBluetoothDevices(); });
 document.querySelector("#btn-restart")?.addEventListener("click", () => Restart());
 document.querySelector("#btn-shutdown")?.addEventListener("click", () => Shutdown());
 document.querySelector("#btn-explorer")?.addEventListener("click", () => Explorer());
@@ -225,7 +227,7 @@ function upsertCard(rawGame) {
     virtualIcon.style.setProperty("--xinput-logo", `url("${xinputIconURL}")`);
     virtualIcon.setAttribute("aria-hidden", "true");
     virtualBadge.append(virtualIcon);
-    virtualBadge.title = "Virtual Xbox input enabled for this game";
+    virtualBadge.title = "Use virtual Xbox (XInput) controllers for this game";
     virtualBadge.setAttribute("aria-label", virtualBadge.title);
     virtualBadge.setAttribute("role", "img");
     virtualBadge.hidden = true;
@@ -394,6 +396,7 @@ initTopbarMenu({ onClose: () => controllerFocusGrid() });
 initWifiDialog({ onClose: () => controllerFocusGrid() });
 initSoundSettings({ onClose: () => controllerFocusGrid() });
 initControllers(() => controllerFocusGrid());
+initBluetoothDevices(() => controllerFocusGrid());
 initBTIndicator();
 GetStatuses().then((s) => setDebugToolsVisible(!!s.debug)).catch(() => setDebugToolsVisible(false));
 loadAndShow();

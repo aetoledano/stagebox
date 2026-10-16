@@ -4,6 +4,7 @@ import {audio} from '../models';
 import {controller} from '../models';
 import {uuid} from '../models';
 import {main} from '../models';
+import {bluetooth} from '../models';
 import {games} from '../models';
 import {wifi} from '../models';
 
@@ -19,11 +20,15 @@ export function ExitLauncher():Promise<void>;
 
 export function Explorer():Promise<void>;
 
+export function ForgetBluetoothDevice(arg1:string):Promise<string>;
+
 export function GetAudioStatus():Promise<audio.Status>;
 
 export function GetControllers():Promise<Array<controller.ControllerInfo>>;
 
 export function GetGameOptions(arg1:uuid.UUID):Promise<main.GameOptions>;
+
+export function GetPairedBluetoothDevices():Promise<bluetooth.PairedDeviceList>;
 
 export function GetSoundSettings():Promise<audio.Settings>;
 
@@ -42,6 +47,8 @@ export function OpenBluetoothPairing():Promise<void>;
 export function OpenRetroBat():Promise<void>;
 
 export function OpenSteam():Promise<void>;
+
+export function RemoveSavedController(arg1:string):Promise<Array<controller.ControllerInfo>>;
 
 export function Restart():Promise<void>;
 
@@ -70,6 +77,8 @@ export function SteamLaunchAction(arg1:uuid.UUID,arg2:string):Promise<void>;
 export function SteamUpdateStates():Promise<Record<string, boolean>>;
 
 export function TestController(arg1:string):Promise<void>;
+
+export function TestControllerRumble(arg1:string):Promise<void>;
 
 export function ToggleAudioMute():Promise<audio.Status>;
 

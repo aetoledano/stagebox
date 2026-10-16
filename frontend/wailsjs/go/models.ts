@@ -71,6 +71,65 @@ export namespace audio {
 
 }
 
+export namespace bluetooth {
+	
+	export class PairedDevice {
+	    id: string;
+	    name: string;
+	    address: string;
+	    connected: boolean;
+	    transport: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PairedDevice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.address = source["address"];
+	        this.connected = source["connected"];
+	        this.transport = source["transport"];
+	    }
+	}
+	export class PairedDeviceList {
+	    devices: PairedDevice[];
+	    complete: boolean;
+	    warning: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PairedDeviceList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.devices = this.convertValues(source["devices"], PairedDevice);
+	        this.complete = source["complete"];
+	        this.warning = source["warning"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace controller {
 	
 	export class ControllerInfo {

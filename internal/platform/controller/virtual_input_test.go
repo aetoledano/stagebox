@@ -32,6 +32,7 @@ func TestVirtualSessionFeedsAndStopsWithoutDriver(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer session.close()
+	keepTestFeedbackAlive(t, right, 1)
 	// Arm neutral before feeding held input. The producer is the SDL owner.
 	session.publish(xinputGamepad{})
 	var frame [12]byte
@@ -78,6 +79,7 @@ func TestVirtualSessionKeepsPlayersSeparateAndRearmsReconnectedSource(t *testing
 		t.Fatal(err)
 	}
 	defer session.close()
+	keepTestFeedbackAlive(t, right, 2)
 	readUntil := func(first, second uint16) {
 		t.Helper()
 		right.SetReadDeadline(time.Now().Add(time.Second))
@@ -109,4 +111,21 @@ func TestVirtualSessionKeepsPlayersSeparateAndRearmsReconnectedSource(t *testing
 	first.state.wButtons = XINPUT_GAMEPAD_X
 	session.publishDevices([]controllerDevice{first, second})
 	readUntil(XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_B)
+}
+
+func keepTestFeedbackAlive(t *testing.T, conn net.Conn, controllers int) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			if _, err := conn.Write(make([]byte, controllers*4)); err != nil {
+				return
+			}
+			<-ticker.C
+		}
+	}()
+	t.Cleanup(func() { conn.Close(); <-done })
 }

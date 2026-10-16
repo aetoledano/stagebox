@@ -15,9 +15,9 @@
 .game-options-hint { text-align: center; color: #90a497; font-size: 12px; }
 .game-options-overlay .gp-focus, .game-options-overlay :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .game-options-overlay button:disabled { opacity: .55; }
-.virtual-input-badge { position: absolute; left: 12px; top: 12px; display:flex; align-items:center; justify-content:center; width:80px; height:24px; filter:drop-shadow(0 1px 2px rgba(0,0,0,.85)); pointer-events: none; }
+.virtual-input-badge { position:absolute; left:12px; top:12px; display:flex; align-items:center; justify-content:center; width:80px; height:24px; filter:drop-shadow(0 1px 2px rgba(0,0,0,.85)); pointer-events:none; }
 .virtual-input-logo { display:block; width:80px; height:24px; background:var(--accent); -webkit-mask:var(--xinput-logo) center / contain no-repeat; mask:var(--xinput-logo) center / contain no-repeat; }
-.virtual-input-badge[hidden] { display: none; }
+.virtual-input-badge[hidden] { display:none; }
 .card.gp-holding::after { content: ""; position: absolute; bottom: 0; left: 0; height: 3px; background: var(--accent); animation: game-options-hold 1s linear forwards; pointer-events: none; }
 @keyframes game-options-hold { from { width: 0; } to { width: 100%; } }
 @media (prefers-reduced-motion: reduce) { .card.gp-holding::after { animation: none; width: 100%; } }

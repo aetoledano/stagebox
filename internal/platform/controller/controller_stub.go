@@ -53,6 +53,9 @@ func (b *ControllerBridge) SelectController(string) error {
 	return fmt.Errorf("controller selection requires Windows SDL input")
 }
 func (b *ControllerBridge) TestController(string) error { return nil }
+func (b *ControllerBridge) TestControllerRumble(string) error {
+	return fmt.Errorf("rumble testing requires Windows SDL input")
+}
 func (b *ControllerBridge) NeedsVirtualInput(bool) bool { return false }
 func (b *KeyboardBridge) Pause()                        {}
 func (b *KeyboardBridge) Resume()                       {}
@@ -68,6 +71,12 @@ func MoveCursorTo(x int, y int)              {}
 func SendKeyStrokeToPID(pid uint32, key string) bool {
 	return false
 }
-func ConnectedCount() int { return 0 }
+func ConnectedCount() int                                         { return 0 }
+func (b *ControllerBridge) HasConnectedBluetoothController() bool { return false }
 
-func (b *ControllerBridge) IsTesting() bool { return false }
+func (b *ControllerBridge) IsTesting() bool                                { return false }
+func (b *ControllerBridge) RememberBluetoothControllers() error            { return nil }
+func (b *ControllerBridge) ControllerProfilesForBluetooth(string) []string { return nil }
+func (b *ControllerBridge) RemoveControllerProfiles([]string) error {
+	return fmt.Errorf("controller settings require Windows SDL input")
+}

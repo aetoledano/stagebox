@@ -142,14 +142,15 @@ func (b *ControllerBridge) DisableVirtualInput() error {
 }
 
 type virtualHello struct {
-	Type        string         `json:"type"`
-	Token       string         `json:"token"`
-	Error       string         `json:"error"`
-	Marker      string         `json:"marker"`
-	Index       int            `json:"xinputIndex"`
-	Hidden      bool           `json:"physicalHidden"`
-	Device      string         `json:"physicalInstance"`
-	Controllers []virtualHello `json:"controllers"`
+	FeedbackVersion int            `json:"feedbackVersion"`
+	Type            string         `json:"type"`
+	Token           string         `json:"token"`
+	Error           string         `json:"error"`
+	Marker          string         `json:"marker"`
+	Index           int            `json:"xinputIndex"`
+	Hidden          bool           `json:"physicalHidden"`
+	Device          string         `json:"physicalInstance"`
+	Controllers     []virtualHello `json:"controllers"`
 }
 
 func startVirtualHelper(ctx context.Context, sourcePaths []string) (net.Conn, func() error, error) {
@@ -223,8 +224,8 @@ func startVirtualHelper(ctx context.Context, sourcePaths []string) (net.Conn, fu
 			stopConnection()
 			conn.Close()
 		}
-		reader := bufio.NewReader(io.LimitReader(conn, 32768))
-		line, err := reader.ReadBytes('\n')
+		reader := bufio.NewReaderSize(conn, 32768)
+		line, err := reader.ReadSlice('\n')
 		var hello virtualHello
 		if err != nil || json.Unmarshal(line, &hello) != nil || hello.Type != "hello" || subtle.ConstantTimeCompare([]byte(hello.Token), []byte(token)) != 1 {
 			closeConnection()
@@ -232,12 +233,12 @@ func startVirtualHelper(ctx context.Context, sourcePaths []string) (net.Conn, fu
 		}
 		conn.SetReadDeadline(deadline)
 		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		request, _ := json.Marshal(map[string]any{"type": "start", "physicalPaths": sourcePaths})
+		request, _ := json.Marshal(map[string]any{"type": "start", "physicalPaths": sourcePaths, "feedbackVersion": virtualFeedbackVersion})
 		if _, err := conn.Write(append(request, '\n')); err != nil {
 			closeConnection()
 			return nil, nil, err
 		}
-		line, err = reader.ReadBytes('\n')
+		line, err = reader.ReadSlice('\n')
 		if err != nil {
 			closeConnection()
 			return nil, nil, fmt.Errorf("virtual controller setup failed: %w", err)
@@ -249,6 +250,10 @@ func startVirtualHelper(ctx context.Context, sourcePaths []string) (net.Conn, fu
 		if hello.Type != "ready" {
 			closeConnection()
 			return nil, nil, fmt.Errorf("virtual controller setup failed: %s", hello.Error)
+		}
+		if hello.FeedbackVersion != virtualFeedbackVersion {
+			closeConnection()
+			return nil, nil, fmt.Errorf("virtual controller feedback version mismatch; copy the matching assets/hidmaestro bundle")
 		}
 		if len(hello.Controllers) != len(sourcePaths) {
 			closeConnection()
@@ -280,7 +285,7 @@ func startVirtualHelper(ctx context.Context, sourcePaths []string) (net.Conn, fu
 		conn.SetWriteDeadline(time.Time{})
 		stopConnection()
 		ready = true
-		return conn, closeProcess, nil
+		return &virtualFeedbackConnection{Conn: conn, reader: reader}, closeProcess, nil
 	}
 }
 

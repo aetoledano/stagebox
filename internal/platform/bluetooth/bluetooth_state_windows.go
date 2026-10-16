@@ -5,6 +5,7 @@ package bluetooth
 import (
 	"launcher/internal/logx"
 	"os/exec"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -37,9 +38,15 @@ var (
 	procFindDeviceClose *windows.LazyProc
 
 	bluetoothProcsInitialized bool
+	bluetoothProcsOnce        sync.Once
 )
 
 func initBluetoothProcs() bool {
+	bluetoothProcsOnce.Do(func() { loadBluetoothProcs() })
+	return bluetoothProcsInitialized
+}
+
+func loadBluetoothProcs() bool {
 	if bluetoothProcsInitialized {
 		return true
 	}

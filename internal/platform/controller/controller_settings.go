@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	lgx "launcher/internal/logx"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,14 +21,15 @@ const (
 )
 
 type ControllerInfo struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Connection   string `json:"connection"`
-	Mode         string `json:"mode"`
-	Known        bool   `json:"known"`
-	Connected    bool   `json:"connected"`
-	Active       bool   `json:"active"`
-	NativeXInput bool   `json:"nativeXInput"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Connection       string `json:"connection"`
+	Mode             string `json:"mode"`
+	Known            bool   `json:"known"`
+	Connected        bool   `json:"connected"`
+	Active           bool   `json:"active"`
+	NativeXInput     bool   `json:"nativeXInput"`
+	BluetoothAddress string `json:"-"`
 }
 
 type controllerDevice struct {
@@ -39,10 +41,11 @@ type controllerDevice struct {
 
 type controllerInventory struct{ devices []controllerDevice }
 type controllerPreference struct {
-	Name         string `json:"name"`
-	Connection   string `json:"connection"`
-	Mode         string `json:"mode"`
-	NativeXInput bool   `json:"nativeXInput,omitempty"`
+	Name             string `json:"name"`
+	Connection       string `json:"connection"`
+	Mode             string `json:"mode"`
+	NativeXInput     bool   `json:"nativeXInput,omitempty"`
+	BluetoothAddress string `json:"bluetoothAddress,omitempty"`
 }
 type controllerPreferences struct {
 	Version     int                             `json:"version"`
@@ -79,6 +82,7 @@ func controllerPreferenceStoreAt(path string) (*controllerPreferenceStore, error
 	store := &controllerPreferenceStore{path: path, data: controllerPreferences{Version: 1, Controllers: make(map[string]controllerPreference)}}
 	file, err := os.Open(store.path)
 	if os.IsNotExist(err) {
+		lgx.Infof("controller preferences missing path=%q; non-XInput controllers will need a default", store.path)
 		return store, nil
 	}
 	if err != nil {
@@ -105,10 +109,11 @@ func controllerPreferenceStoreAt(path string) (*controllerPreferenceStore, error
 		return nil, fmt.Errorf("unsupported controller preference format")
 	}
 	for id, preference := range store.data.Controllers {
-		if !validControllerID(id) || !validControllerMode(preference.Mode) || (preference.NativeXInput && preference.Mode != ControllerNative) {
+		if !validControllerID(id) || !validControllerMode(preference.Mode) || (preference.NativeXInput && preference.Mode != ControllerNative) || (preference.BluetoothAddress != "" && !validBluetoothAddress(preference.BluetoothAddress)) {
 			return nil, fmt.Errorf("invalid saved controller preference")
 		}
 	}
+	lgx.Infof("controller preferences loaded path=%q profiles=%d", store.path, len(store.data.Controllers))
 	return store, nil
 }
 
@@ -129,6 +134,9 @@ func (s *controllerPreferenceStore) apply(info ControllerInfo) ControllerInfo {
 	defer s.mu.Unlock()
 	if saved, ok := s.data.Controllers[info.ID]; ok {
 		info.Mode, info.Known = saved.Mode, true
+		if info.BluetoothAddress == "" {
+			info.BluetoothAddress = saved.BluetoothAddress
+		}
 	}
 	return info
 }
@@ -137,11 +145,27 @@ func (s *controllerPreferenceStore) save(info ControllerInfo, mode string) error
 	if s == nil {
 		return fmt.Errorf("controller preferences are unavailable; check assets/controllers.json")
 	}
-	if !validControllerID(info.ID) || !validControllerMode(mode) {
+	if !validControllerID(info.ID) || !validControllerMode(mode) || (info.BluetoothAddress != "" && !validBluetoothAddress(info.BluetoothAddress)) {
 		return fmt.Errorf("invalid controller preference")
 	}
 	if info.NativeXInput && mode != ControllerNative {
 		return fmt.Errorf("this controller already provides native Xbox input")
+	}
+	return s.edit(func(profiles map[string]controllerPreference) bool {
+		address := info.BluetoothAddress
+		if address == "" {
+			address = profiles[info.ID].BluetoothAddress
+		}
+		profiles[info.ID] = controllerPreference{Name: info.Name, Connection: info.Connection, Mode: mode, NativeXInput: info.NativeXInput, BluetoothAddress: address}
+		return true
+	})
+}
+
+// All mutations use the same serialized atomic replacement. Never publish a
+// changed in-memory map if writing the user's file failed.
+func (s *controllerPreferenceStore) edit(change func(map[string]controllerPreference) bool) error {
+	if s == nil {
+		return fmt.Errorf("controller preferences are unavailable; check assets/controllers.json")
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -151,7 +175,9 @@ func (s *controllerPreferenceStore) save(info ControllerInfo, mode string) error
 		updated.Controllers[id] = value
 	}
 	s.mu.Unlock()
-	updated.Controllers[info.ID] = controllerPreference{Name: info.Name, Connection: info.Connection, Mode: mode, NativeXInput: info.NativeXInput}
+	if !change(updated.Controllers) {
+		return nil
+	}
 	data, err := json.MarshalIndent(updated, "", "  ")
 	if err != nil {
 		return err
@@ -183,6 +209,45 @@ func (s *controllerPreferenceStore) save(info ControllerInfo, mode string) error
 	return nil
 }
 
+func validBluetoothAddress(address string) bool {
+	decoded, err := hex.DecodeString(address)
+	return err == nil && len(decoded) == 6 && address == strings.ToLower(address) && address != "000000000000"
+}
+
+func (s *controllerPreferenceStore) rememberBluetooth(devices []controllerDevice) error {
+	return s.edit(func(profiles map[string]controllerPreference) bool {
+		changed := false
+		for _, device := range devices {
+			info := device.info
+			if saved, exists := profiles[info.ID]; exists && validBluetoothAddress(info.BluetoothAddress) && (saved.BluetoothAddress != info.BluetoothAddress || saved.Connection != info.Connection) {
+				saved.BluetoothAddress = info.BluetoothAddress
+				saved.Connection = info.Connection
+				profiles[info.ID] = saved
+				changed = true
+			}
+		}
+		return changed
+	})
+}
+
+func (s *controllerPreferenceStore) remove(ids []string) error {
+	for _, id := range ids {
+		if !validControllerID(id) {
+			return fmt.Errorf("invalid controller ID")
+		}
+	}
+	return s.edit(func(profiles map[string]controllerPreference) bool {
+		changed := false
+		for _, id := range ids {
+			if _, exists := profiles[id]; exists {
+				delete(profiles, id)
+				changed = true
+			}
+		}
+		return changed
+	})
+}
+
 func (s *controllerPreferenceStore) list(devices []controllerDevice) []ControllerInfo {
 	result := make([]ControllerInfo, 0, len(devices))
 	seen := make(map[string]bool)
@@ -194,7 +259,7 @@ func (s *controllerPreferenceStore) list(devices []controllerDevice) []Controlle
 		s.mu.Lock()
 		for id, saved := range s.data.Controllers {
 			if !seen[id] {
-				result = append(result, ControllerInfo{ID: id, Name: saved.Name, Connection: saved.Connection, Mode: saved.Mode, Known: true, NativeXInput: saved.NativeXInput})
+				result = append(result, ControllerInfo{ID: id, Name: saved.Name, Connection: saved.Connection, Mode: saved.Mode, Known: true, NativeXInput: saved.NativeXInput, BluetoothAddress: saved.BluetoothAddress})
 			}
 		}
 		s.mu.Unlock()
@@ -219,15 +284,20 @@ func controllerUsesVirtual(info ControllerInfo, gameEnabled bool) bool {
 }
 
 type ControllerState struct {
-	ID           string   `json:"id"`
-	Connected    bool     `json:"connected"`
-	Buttons      []string `json:"buttons"`
-	LeftX        float64  `json:"leftX"`
-	LeftY        float64  `json:"leftY"`
-	RightX       float64  `json:"rightX"`
-	RightY       float64  `json:"rightY"`
-	LeftTrigger  float64  `json:"leftTrigger"`
-	RightTrigger float64  `json:"rightTrigger"`
+	ID                 string   `json:"id"`
+	Connected          bool     `json:"connected"`
+	Buttons            []string `json:"buttons"`
+	LeftX              float64  `json:"leftX"`
+	LeftY              float64  `json:"leftY"`
+	RightX             float64  `json:"rightX"`
+	RightY             float64  `json:"rightY"`
+	LeftTrigger        float64  `json:"leftTrigger"`
+	RightTrigger       float64  `json:"rightTrigger"`
+	LeftTriggerSource  string   `json:"leftTriggerSource"`
+	RightTriggerSource string   `json:"rightTriggerSource"`
+	SDLLeftTrigger     int16    `json:"sdlLeftTrigger"`
+	SDLRightTrigger    int16    `json:"sdlRightTrigger"`
+	RawAxes            []int16  `json:"rawAxes"`
 }
 
 func diagnosticState(id string, gp xinputGamepad) ControllerState {

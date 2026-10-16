@@ -59,6 +59,18 @@ It authenticates a localhost TCP connection with a random per-session token.
 The helper verifies the exact parent PID/creation time, accepts a bounded
 authenticated setup request with one to four unique physical HID paths, then receives
 fixed ordered N × 12-byte little-endian XInput report batches, with no command-execution protocol.
+After ready, a reverse binary stream carries N × 4-byte little-endian low/high
+motor pairs in the same roster order. Start and ready negotiate feedbackVersion=1.
+RumbleFeedback.cs decodes the pinned SDK’s raw XInput/recognized Xbox USB motor
+packets, stores atomic pairs in SDK callbacks and writes snapshots from a separate
+thread on changes and every 100 ms. LED/feature packets are not vibration. Runtime
+errors never append JSON to this binary stream. The Go reader retains handshake
+read-ahead, uses fixed framing/500ms read deadlines, and publishes immutable
+snapshots; SDL applies them only on its locked owner, with 300ms freshness and
+finite 250ms effects refreshed every 100ms. Zero, disconnect, reload or session
+end stop rumble. Dispose unsubscribes callbacks and stops the writer before
+disposing targets. Unsupported physical rumble does not disable input.
+
 Standard face/shoulder/stick buttons, D-pad, Start/Back, both sticks and both
 triggers are mapped into the SDK's `xbox-360-wired` profile. Y axes invert to HID
 coordinates. Setup must expose one new XInput slot per converted pad before the game or frontend is started.
@@ -72,8 +84,10 @@ driver is absent, because that SDK method includes a global stale-device sweep.
 
 Each converted pad has independent state and neutral rearming. Native-default pads
 remain physical unless the game switch is on; Virtual-default pads always convert.
-Native XInput stays native. All sources reconnect/rearm independently. Rumble/output forwarding is
-not implemented. HidHide protects the physical DirectInput controller so games
+Native XInput stays native. All sources reconnect/rearm independently. Standard two-motor rumble is returned to the original physical SDL pad.
+Trigger pressure is continuous 0..255 Xbox input, mapped to the separate profile
+trigger axes at 0..1. Adaptive-trigger effects/trigger motors are not exposed by
+this Xbox 360 profile. HidHide protects the physical DirectInput controller so games
 can use the virtual Xbox pad without duplicate input.
 Verified SDL `XInput#` sources bypass virtual creation. Unplugging a pinned
 physical device sends neutral reports; a matching device path can reconnect.

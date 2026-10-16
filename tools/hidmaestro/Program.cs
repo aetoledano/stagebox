@@ -13,7 +13,7 @@ using HIDMaestro;
 [assembly: SupportedOSPlatform("windows10.0.17763")]
 
 // One authenticated loopback connection and up to four controllers per invocation.
-// The elevated helper accepts input reports only, never commands or file paths.
+// Authenticated input reports in; motor feedback out. No command-execution protocol.
 internal static class Program
 {
     private static readonly (ushort Mask, HMButton Button)[] ButtonMap = {
@@ -42,6 +42,7 @@ internal static class Program
             catch (Exception error) { Console.Error.WriteLine(error.Message); return 1; }
         }
         NetworkStream? stream = null;
+        bool readySent = false;
         try
         {
             if (args.Length != 4 || !int.TryParse(args[0], out int port) || port < 1 || port > 65535 ||
@@ -83,6 +84,7 @@ internal static class Program
             if (Slots().Count(value => !value) < start.Length) throw new InvalidOperationException("Not enough free Windows XInput slots for the virtual controllers.");
             var pads = new List<Pad>();
             var ready = new List<object>();
+            using var feedback = new RumbleFeedback(stream, start.Length);
             try
             {
                 for (int index = 0; index < start.Length; index++)
@@ -90,8 +92,9 @@ internal static class Program
                     bool[] before = Slots();
                     string key = "stagebox-native-" + args[1] + "-" + index;
                     string marker = "HM_" + BinaryPrimitives.ReadUInt64BigEndian(SHA256.HashData(Encoding.UTF8.GetBytes("HIDMaestro.DeviceIdentity.v1\n" + key))).ToString("X16");
-                    var pad = new Pad(context.CreateController(profile, key), profile);
+                    var pad = new Pad(context.CreateController(profile, key), profile, feedback, index);
                     pads.Add(pad); // Own partial setup before any later failure.
+                    pad.WatchFeedback();
                     int slot = -1;
                     var deadline = Stopwatch.StartNew();
                     while (deadline.Elapsed < TimeSpan.FromSeconds(5))
@@ -107,7 +110,10 @@ internal static class Program
                     ready.Add(new { marker, xinputIndex = slot, physicalHidden = true, physicalInstance = hiding.Instances[index] });
                 }
                 context.FinalizeNames();
-                Send(stream, new { type = "ready", controllers = ready });
+                Send(stream, new { type = "ready", controllers = ready, feedbackVersion = 1 });
+                readySent = true;
+                stream.WriteTimeout = 500;
+                feedback.Start();
                 stream.ReadTimeout = 1500;
                 var bytes = new byte[12 * pads.Count];
                 while (!parent.HasExited)
@@ -118,7 +124,8 @@ internal static class Program
             }
             finally
             {
-                foreach (var pad in pads) { try { pad.Neutral(); } catch { } }
+                foreach (var pad in pads) { pad.StopFeedback(); try { pad.Neutral(); } catch { } }
+                feedback.Dispose();
                 context.Dispose(); // The SDK tears down its owned controllers in parallel.
                 watching.Cancel();
             }
@@ -128,7 +135,8 @@ internal static class Program
         catch (IOException) { return 0; }
         catch (Exception error)
         {
-            try { if (stream != null) Send(stream, new { type = "error", error = error.Message }); } catch { }
+            // After ready, this direction is fixed binary feedback, never JSON.
+            try { if (!readySent && stream != null) Send(stream, new { type = "error", error = error.Message }); } catch { }
             return 1;
         }
     }
@@ -144,6 +152,7 @@ internal static class Program
                 using var document = JsonDocument.Parse(line.ToArray());
                 var root = document.RootElement;
                 if (root.GetProperty("type").GetString() != "start") throw new InvalidOperationException("Invalid virtual-input setup request.");
+                if (root.GetProperty("feedbackVersion").GetInt32() != 1) throw new InvalidOperationException("Virtual-input feedback version mismatch.");
                 var paths = root.GetProperty("physicalPaths").EnumerateArray().Select(value => value.GetString() ?? "").ToArray();
                 if (paths.Length is < 1 or > 4 || paths.Any(path => string.IsNullOrEmpty(path) || path.Length > 4096))
                     throw new InvalidOperationException("Invalid physical controller paths.");
@@ -154,8 +163,11 @@ internal static class Program
         throw new InvalidOperationException("Virtual-input setup request is too large.");
     }
 
-    private sealed class Pad(HMController controller, HMProfile profile)
+    private sealed class Pad(HMController controller, HMProfile profile, RumbleFeedback feedback, int index)
     {
+        private void OnOutput(HMController sender, HMOutputPacket packet) => feedback.Record(index, packet);
+        public void WatchFeedback() => controller.OutputReceived += OnOutput;
+        public void StopFeedback() => controller.OutputReceived -= OnOutput;
         private HMGamepadState state = new() { Axes = HMGamepadStateHelpers.StandardAxes(profile) };
         private readonly HMAxis lx = profile.Sticks[0].XAxis, ly = profile.Sticks[0].YAxis,
             rx = profile.Sticks[1].XAxis, ry = profile.Sticks[1].YAxis,

@@ -21,6 +21,8 @@ type virtualInputSession struct {
 	pinOnce      sync.Once
 	frames       chan []xinputGamepad
 	active       atomic.Bool
+	feedback     atomic.Pointer[virtualRumbleSnapshot]
+	feedbackDone chan struct{}
 	inputGates   []launcherInputGate // SDL owner only
 	instances    []uint32            // SDL owner only; reconnect must rearm independently
 	conn         net.Conn
@@ -34,7 +36,7 @@ type virtualInputSession struct {
 func newVirtualInputSession(ctx context.Context, path string, more ...string) *virtualInputSession {
 	ctx, cancel := context.WithCancel(ctx)
 	paths := append([]string{path}, more...)
-	return &virtualInputSession{sourcePaths: paths, inputGates: make([]launcherInputGate, len(paths)), instances: make([]uint32, len(paths)), ctx: ctx, cancel: cancel, pinned: make(chan struct{}), frames: make(chan []xinputGamepad, 1), done: make(chan struct{})}
+	return &virtualInputSession{sourcePaths: paths, inputGates: make([]launcherInputGate, len(paths)), instances: make([]uint32, len(paths)), ctx: ctx, cancel: cancel, pinned: make(chan struct{}), frames: make(chan []xinputGamepad, 1), done: make(chan struct{}), feedbackDone: make(chan struct{})}
 }
 
 func (s *virtualInputSession) publish(state xinputGamepad) {
@@ -119,9 +121,12 @@ func virtualReport(state xinputGamepad) [12]byte {
 }
 
 func (s *virtualInputSession) run() {
+	go s.readFeedback()
 	defer func() {
 		s.active.Store(false)
+		s.cancel()
 		s.conn.Close()
+		<-s.feedbackDone
 		if err := s.closeProcess(); err != nil {
 			s.setError(err)
 		}

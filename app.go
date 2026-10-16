@@ -659,7 +659,8 @@ func (a *App) emitHardwareStatus() {
 func (a *App) readHardwareStatus() (string, bool, int, wifi.Status) {
 	st := bluetooth.State()
 	count := controller.ConnectedCount()
-	return st, st == "on" && bluetooth.AnyConnectedDevice(), count, wifi.CurrentStatus()
+	connected := st == "on" && (a.pad.HasConnectedBluetoothController() || bluetooth.AnyConnectedDevice())
+	return st, connected, count, wifi.CurrentStatus()
 }
 
 func (a *App) statusPayload(bt string, btConnected bool, controllerCount int, wifiSt wifi.Status) map[string]any {

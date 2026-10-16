@@ -7,6 +7,7 @@ import { handleSoundControllerNav, handleSoundControllerPress } from "./sound.js
 import { handleLaunchFeedbackNav, handleLaunchFeedbackPress } from "./launchFeedback.js";
 import { gameOptionsOpen, openGameOptions, handleGameOptionsNav, handleGameOptionsPress } from "./gameOptions.js";
 import { handleControllersNav, handleControllersPress } from "./controllers.js";
+import { handleBluetoothDevicesNav, handleBluetoothDevicesPress } from "./bluetoothDevices.js";
 
 
 let getCards = () => [];
@@ -25,6 +26,7 @@ function cancelAHold() {
 function press(name) {
   if (name !== "A") cancelAHold();
   if (handleLaunchFeedbackPress(name)) return;
+  if (handleBluetoothDevicesPress(name)) return;
   if (handleControllersPress(name)) return;
   if (handleGameOptionsPress(name)) return;
   if (handleSoundControllerPress(name)) return;
@@ -33,9 +35,10 @@ function press(name) {
   if (name === "A") activate();
   else if (name === "KILL") KillRunning().catch(console.error);
 }
-function physicalA({ name, down, cancelled }) {
+function physicalA({ name, down, cancelled, source = 0 }) {
   if (name !== "A") return;
   if (!down) {
+    if (aIntent && aIntent.source !== source) return;
     const intent = aIntent;
     cancelAHold();
     if (!cancelled && intent && !intent.opened && intent.card.isConnected && state.mode === "grid" && getCards()[state.i] === intent.card) {
@@ -46,11 +49,11 @@ function physicalA({ name, down, cancelled }) {
   cancelAHold();
   // Existing modal/topbar/Steam actions activate on press. Only native cards
   // defer activation to release so the same button can open their options.
-  if (handleLaunchFeedbackPress("A") || handleControllersPress("A") || handleGameOptionsPress("A") || handleSoundControllerPress("A") ||
+  if (handleLaunchFeedbackPress("A") || handleBluetoothDevicesPress("A") || handleControllersPress("A") || handleGameOptionsPress("A") || handleSoundControllerPress("A") ||
       handleWifiControllerPress("A") || handleControllerPress("A")) return;
   const card = state.mode === "grid" ? getCards()[state.i] : null;
   if (!card || card.dataset.steamAppId !== "0") { activate(); return; }
-  const intent = { card, opened: false, timer: null };
+  const intent = { card, source, opened: false, timer: null };
   aIntent = intent;
   card.classList.add("gp-holding");
   intent.timer = setTimeout(() => {
@@ -127,6 +130,7 @@ function nearestCardIndexFromBar(btn) {
 function move(dir) {
   cancelAHold();
   if (handleLaunchFeedbackNav(dir)) return;
+  if (handleBluetoothDevicesNav(dir)) return;
   if (handleControllersNav(dir)) return;
   if (handleGameOptionsNav(dir)) return;
   if (handleSoundControllerNav(dir)) return;

@@ -198,9 +198,11 @@ type ControllerBridge struct {
 	preferences                       *controllerPreferenceStore
 	inventory                         atomic.Pointer[controllerInventory]
 	testing                           atomic.Pointer[controllerTestRequest]
+	testRumble                        atomic.Pointer[controllerRumbleRequest]
+	rumbleTarget                      atomic.Pointer[controllerTestRequest]
+	loggedTest                        *controllerTestRequest // SDL owner only
 	selectController                  atomic.Pointer[controllerTestRequest]
 	nextInventoryEvent, nextTestEvent time.Time // SDL owner only
-	aPressed                          bool      // physical A edge, owned by poller
 	keyBindings                       []gameKeyBinding
 	keyBindingsMu                     sync.Mutex
 	activeGameKeys                    map[byte]bool
@@ -235,6 +237,7 @@ func StartControllerBridge(ctx context.Context, volumeAction func(string), downl
 		lgx.Warnf("controller preferences unavailable: %v", err)
 	}
 	go ensureControllerDatabase(ctx, downloadDatabase)
+	go b.syncBluetoothControllers()
 	go func() {
 		recoverVirtualInputState(ctx)
 		b.loop()
@@ -393,92 +396,6 @@ func ConnectedCount() int {
 	return int(connectedControllers.Load())
 }
 
-func nativeConnectedCount() int {
-
-	count := 0
-	if xinputGetState != nil {
-		var st xinputState
-		for i := uint32(0); i < 4; i++ {
-			r1, _, _ := xinputGetState.Call(uintptr(i), uintptr(unsafe.Pointer(&st)))
-			if r1 == 0 {
-				count++
-			}
-		}
-	}
-	if count > 0 {
-		return count
-	}
-	if loadLegacyJoystick() != nil {
-		return 0
-	}
-	return legacyConnectedCount()
-}
-
-func legacyConnectedCount() int {
-	if loadLegacyJoystick() != nil {
-		return 0
-	}
-	n, _, _ := procJoyGetNumDevs.Call()
-	if n > 16 {
-		n = 16
-	}
-
-	count := 0
-	for i := uintptr(0); i < n; i++ {
-		if _, ok := pollLegacyIndex(uint32(i)); ok {
-			count++
-		}
-	}
-	return count
-}
-
-func (b *ControllerBridge) pollXInputGamepad(lastConn time.Time) (xinputGamepad, bool) {
-	if xinputGetState == nil {
-		return xinputGamepad{}, false
-	}
-
-	var st xinputState
-	r1, _, _ := xinputGetState.Call(uintptr(b.activeIndex), uintptr(unsafe.Pointer(&st)))
-	if r1 == 0 {
-		return st.Gamepad, true
-	}
-
-	if r1 != ERROR_DEVICE_NOT_CONNECTED && time.Since(lastConn) <= 2*time.Second {
-		return xinputGamepad{}, false
-	}
-
-	for i := uint32(0); i < 4; i++ {
-		r1, _, _ = xinputGetState.Call(uintptr(i), uintptr(unsafe.Pointer(&st)))
-		if r1 == 0 {
-			b.activeIndex = i
-			return st.Gamepad, true
-		}
-	}
-	return xinputGamepad{}, false
-}
-
-func (b *ControllerBridge) pollLegacyGamepad() (xinputGamepad, bool) {
-	if loadLegacyJoystick() != nil {
-		return xinputGamepad{}, false
-	}
-	if gp, ok := pollLegacyIndex(b.legacyIndex); ok {
-		return gp, true
-	}
-
-	n, _, _ := procJoyGetNumDevs.Call()
-	if n > 16 {
-		n = 16
-	}
-	for i := uint32(0); i < uint32(n); i++ {
-		gp, ok := pollLegacyIndex(i)
-		if ok {
-			b.legacyIndex = i
-			return gp, true
-		}
-	}
-	return xinputGamepad{}, false
-}
-
 func pollLegacyIndex(index uint32) (xinputGamepad, bool) {
 	var joy joyInfoEx
 	joy.dwSize = uint32(unsafe.Sizeof(joy))
@@ -601,30 +518,23 @@ func (b *ControllerBridge) loop() {
 		}
 		b.releaseGameInputs()
 		connectedControllers.Store(0)
+		b.inventory.Store(nil)
 		if sdl != nil {
 			sdl.shutdown()
 		}
 	}()
-	stickDZ := int16(8500)
-	var lastConn time.Time
-	var launcherGate launcherInputGate
+	var navigation launcherNavigation
 	var deviceGate launcherInputGate
-	var volumeStick volumeStickState
 	var deviceID uint64
 	var mappingRevision uint64
 	var lastLauncherFocus time.Time
-	var nextNativeCount time.Time
-	nativeCount := 0
 	resetDevice := func() {
-		b.cancelPhysicalA()
 		b.releaseGameInputs()
 		b.prevGamepad = xinputGamepad{}
 		b.prevButtons, b.holdDir = 0, ""
 		b.nextRepeat, b.killCombo = time.Time{}, time.Time{}
 		b.killArmed = false
-		launcherGate.reset()
 		deviceGate.reset()
-		volumeStick.reset()
 	}
 
 	t := time.NewTicker(8 * time.Millisecond)
@@ -639,14 +549,12 @@ func (b *ControllerBridge) loop() {
 		case <-t.C:
 		}
 		if b.resetInput.Swap(false) {
-			b.cancelPhysicalA()
-			volumeStick.reset()
+			b.emitLauncherActions(navigation.reset())
 			b.prevButtons = 0
 			b.holdDir = ""
 			b.nextRepeat = time.Time{}
 			b.killCombo = time.Time{}
 			b.killArmed = false
-			launcherGate.reset()
 			deviceGate.reset()
 		}
 
@@ -656,6 +564,7 @@ func (b *ControllerBridge) loop() {
 			lastLauncherFocus = now
 		}
 		var gp xinputGamepad
+		var launcherPads []launcherPadSample
 		var currentID uint64
 		ok := false
 		virtual := b.virtualInput.Load()
@@ -680,6 +589,7 @@ func (b *ControllerBridge) loop() {
 			}
 			if sdl.mappingRevision != mappingRevision {
 				resetDevice()
+				b.emitLauncherActions(navigation.reset())
 				if virtual != nil {
 					virtual.resetGates()
 				}
@@ -687,10 +597,16 @@ func (b *ControllerBridge) loop() {
 			}
 			if err == nil {
 				devices := sdl.inventory()
+				for _, device := range devices {
+					launcherPads = append(launcherPads, launcherPadSample{id: uint64(3)<<32 | uint64(device.instance), state: device.state})
+				}
 				b.publishInventory(devices, now)
+				b.publishTestState(sdl, now)
 				if virtual != nil {
 					virtual.publishDevices(devices)
 				}
+				b.pollTestRumble(sdl, now)
+				sdl.forwardVirtualRumble(virtual, now)
 			}
 			if virtual != nil {
 				connectedControllers.Store(int32(count))
@@ -705,25 +621,40 @@ func (b *ControllerBridge) loop() {
 			}
 		}
 		if sdl == nil {
+			b.pollTestRumble(nil, now)
 			b.publishInventory(nil, now)
+			b.publishTestState(nil, now)
 			if virtual != nil {
 				virtual.publishDevices(nil)
 			}
 		}
-		if !ok && virtual == nil {
-			gp, ok = b.pollXInputGamepad(lastConn)
-			if ok {
-				lastConn = now
-				currentID = uint64(1)<<32 | uint64(b.activeIndex)
-			} else if gp, ok = b.pollLegacyGamepad(); ok {
-				currentID = uint64(2)<<32 | uint64(b.legacyIndex)
-			}
-			if !now.Before(nextNativeCount) || currentID != deviceID {
-				nativeCount = nativeConnectedCount()
-				nextNativeCount = now.Add(250 * time.Millisecond)
-			}
-			connectedControllers.Store(int32(nativeCount))
+		// A lost diagnostic source can release its grab during inventory
+		// publication. Consume the reset on the next tick before any navigation.
+		if b.resetInput.Load() {
+			continue
 		}
+		if !ok && virtual == nil {
+			launcherPads = pollNativeLauncherPads()
+			for _, sample := range launcherPads {
+				selected := sample.id>>32 == 1 && uint32(sample.id) == b.activeIndex || sample.id>>32 == 2 && uint32(sample.id) == b.legacyIndex
+				if !ok || selected {
+					gp, ok, currentID = sample.state, true, sample.id
+				}
+				if selected {
+					break
+				}
+			}
+			if ok {
+				if currentID>>32 == 1 {
+					b.activeIndex = uint32(currentID)
+				} else {
+					b.legacyIndex = uint32(currentID)
+				}
+			}
+			connectedControllers.Store(int32(len(launcherPads)))
+		}
+		menuEnabled := b.paused.Load() == 0 && b.mouse.Load() == 0 && b.keyboard.Load() == 0 && b.gameKeys.Load() == 0 && b.testing.Load() == nil && LauncherHasFocus()
+		b.emitLauncherActions(navigation.update(launcherPads, menuEnabled, now))
 		if currentID != deviceID {
 			resetDevice()
 			deviceID = currentID
@@ -739,7 +670,6 @@ func (b *ControllerBridge) loop() {
 			lgx.Infof("controller input device changed backend=%s id=%d", backend, uint32(currentID))
 		}
 		if b.testing.Load() != nil {
-			b.cancelPhysicalA()
 			b.prevButtons = 0
 			continue
 		}
@@ -747,12 +677,10 @@ func (b *ControllerBridge) loop() {
 			if virtual != nil && sdl == nil {
 				connectedControllers.Store(0)
 			}
-			b.cancelPhysicalA()
 			continue
 		}
 		// Never inherit another pad's edges, held kill combo or mapped keys.
 		if !deviceGate.allow(true, gamepadNeutral(gp)) {
-			b.cancelPhysicalA()
 			continue
 		}
 
@@ -761,9 +689,6 @@ func (b *ControllerBridge) loop() {
 
 		both := (buttons&XINPUT_GAMEPAD_START) != 0 && (buttons&XINPUT_GAMEPAD_BACK) != 0
 		if both {
-			b.cancelPhysicalA()
-			volumeStick.reset()
-			launcherGate.reset()
 			if !b.killArmed {
 				if b.killCombo.IsZero() {
 					b.killCombo = time.Now()
@@ -780,122 +705,26 @@ func (b *ControllerBridge) loop() {
 		b.killArmed = false
 
 		if b.mouse.Load() == 1 {
-			b.cancelPhysicalA()
-			volumeStick.reset()
-			launcherGate.reset()
 			b.handleMouseMode(gp, buttons, just)
 			b.prevGamepad = gp
 			b.prevButtons = buttons
 			continue
 		}
 		if b.keyboard.Load() == 1 {
-			b.cancelPhysicalA()
-			volumeStick.reset()
-			launcherGate.reset()
 			b.handlePairingKeyboardMode(gp, buttons, just)
 			b.prevGamepad = gp
 			b.prevButtons = buttons
 			continue
 		}
 		if b.gameKeys.Load() == 1 {
-			b.cancelPhysicalA()
-			volumeStick.reset()
-			launcherGate.reset()
 			b.handleGameKeyMap(gp, buttons, just)
 			b.prevGamepad = gp
 			b.prevButtons = buttons
 			continue
 		}
 
-		lx, ly := int(gp.sThumbLX), int(gp.sThumbLY)
-		dz := int(stickDZ)
-		enabled := b.paused.Load() == 0 && LauncherHasFocus()
-		if action := volumeStick.update(time.Now(), int(gp.sThumbRX), int(gp.sThumbRY), enabled); action != "" && b.volumeAction != nil {
-			b.volumeAction(action)
-		}
-		neutral := buttons == 0 && lx*lx+ly*ly < dz*dz
-		if !launcherGate.allow(enabled, neutral) {
-			b.cancelPhysicalA()
-			b.holdDir = ""
-			b.nextRepeat = time.Time{}
-			b.prevGamepad = gp
-			b.prevButtons = buttons
-			continue
-		}
-
-		// D-pad edges
-		if just(XINPUT_GAMEPAD_DPAD_LEFT) {
-			runtime.EventsEmit(b.ctx, "pad:nav", map[string]any{"dir": "left"})
-		}
-		if just(XINPUT_GAMEPAD_DPAD_RIGHT) {
-			runtime.EventsEmit(b.ctx, "pad:nav", map[string]any{"dir": "right"})
-		}
-		if just(XINPUT_GAMEPAD_DPAD_UP) {
-			runtime.EventsEmit(b.ctx, "pad:nav", map[string]any{"dir": "up"})
-		}
-		if just(XINPUT_GAMEPAD_DPAD_DOWN) {
-			runtime.EventsEmit(b.ctx, "pad:nav", map[string]any{"dir": "down"})
-		}
-
-		held := ""
-		if lx*lx+ly*ly >= dz*dz { // outside radial deadzone
-			if math.Abs(float64(lx)) >= math.Abs(float64(ly)) {
-				if lx < 0 {
-					held = "left"
-				} else {
-					held = "right"
-				}
-			} else {
-				if ly > 0 {
-					held = "up"
-				} else {
-					held = "down"
-				}
-			}
-		}
-
-		if held == "" {
-			b.holdDir = ""
-		} else if b.holdDir == "" {
-			b.holdDir = held
-			b.nextRepeat = time.Now().Add(300 * time.Millisecond)
-			runtime.EventsEmit(b.ctx, "pad:nav", map[string]any{"dir": held})
-		} else if time.Now().After(b.nextRepeat) {
-			b.nextRepeat = time.Now().Add(180 * time.Millisecond)
-			runtime.EventsEmit(b.ctx, "pad:nav", map[string]any{"dir": b.holdDir})
-		}
-
-		// Buttons
-		if just(XINPUT_GAMEPAD_A) {
-			b.aPressed = true
-			runtime.EventsEmit(b.ctx, "pad:button", map[string]any{"name": "A", "down": true})
-		}
-		if b.aPressed && buttons&XINPUT_GAMEPAD_A == 0 {
-			b.aPressed = false
-			runtime.EventsEmit(b.ctx, "pad:button", map[string]any{"name": "A", "down": false})
-		}
-		if just(XINPUT_GAMEPAD_B) {
-			runtime.EventsEmit(b.ctx, "pad:press", "B")
-		}
-		if just(XINPUT_GAMEPAD_START) && (buttons&XINPUT_GAMEPAD_BACK) == 0 {
-			runtime.EventsEmit(b.ctx, "pad:press", "START")
-		}
-		if just(XINPUT_GAMEPAD_LEFT_SHOULDER) {
-			runtime.EventsEmit(b.ctx, "pad:press", "LB")
-		}
-		if just(XINPUT_GAMEPAD_RIGHT_SHOULDER) {
-			runtime.EventsEmit(b.ctx, "pad:press", "RB")
-		}
-
 		b.prevGamepad = gp
 		b.prevButtons = buttons
-	}
-}
-
-func (b *ControllerBridge) cancelPhysicalA() {
-	if b.aPressed {
-		b.aPressed = false
-		runtime.EventsEmit(b.ctx, "pad:button", map[string]any{"name": "A", "down": false, "cancelled": true})
 	}
 }
 

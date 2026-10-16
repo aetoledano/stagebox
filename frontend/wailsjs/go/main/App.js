@@ -26,6 +26,10 @@ export function Explorer() {
   return window['go']['main']['App']['Explorer']();
 }
 
+export function ForgetBluetoothDevice(arg1) {
+  return window['go']['main']['App']['ForgetBluetoothDevice'](arg1);
+}
+
 export function GetAudioStatus() {
   return window['go']['main']['App']['GetAudioStatus']();
 }
@@ -36,6 +40,10 @@ export function GetControllers() {
 
 export function GetGameOptions(arg1) {
   return window['go']['main']['App']['GetGameOptions'](arg1);
+}
+
+export function GetPairedBluetoothDevices() {
+  return window['go']['main']['App']['GetPairedBluetoothDevices']();
 }
 
 export function GetSoundSettings() {
@@ -72,6 +80,10 @@ export function OpenRetroBat() {
 
 export function OpenSteam() {
   return window['go']['main']['App']['OpenSteam']();
+}
+
+export function RemoveSavedController(arg1) {
+  return window['go']['main']['App']['RemoveSavedController'](arg1);
 }
 
 export function Restart() {
@@ -128,6 +140,10 @@ export function SteamUpdateStates() {
 
 export function TestController(arg1) {
   return window['go']['main']['App']['TestController'](arg1);
+}
+
+export function TestControllerRumble(arg1) {
+  return window['go']['main']['App']['TestControllerRumble'](arg1);
 }
 
 export function ToggleAudioMute() {
