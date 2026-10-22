@@ -19,42 +19,45 @@ const sdlInitGamepad = 0x00002000
 // All SDL lifetime/event/input calls are owned by the bridge's locked OS
 // thread. Only the bridge's atomic connected count crosses into App status.
 type sdlBackend struct {
-	dll                                                             *windows.DLL
-	init, quit, setMainReady, setHint, getError, getVersion         *windows.Proc
-	pump, flush, getGamepads, free, open, close, connected          *windows.Proc
-	button, axis, name, addMappings                                 *windows.Proc
-	ioFromConstMem                                                  *windows.Proc
-	joystickPath                                                    *windows.Proc
-	getJoystick, numJoystickAxes, joystickAxis                      *windows.Proc
-	serial, realType                                                *windows.Proc
-	connectionState                                                 *windows.Proc
-	rumble                                                          *windows.Proc
-	rumbling                                                        map[uint32]sdlRumbleState
-	testRumbleID                                                    uint32
-	testRumbleOwner                                                 *controllerTestRequest
-	testRumbleUntil                                                 time.Time
-	mapping, getJoysticks, joystickName, vendor, product, isGamepad *windows.Proc
-	gamepads                                                        map[uint32]uintptr
-	paths                                                           map[uint32]string
-	mappings                                                        map[uint32]string
-	info                                                            map[uint32]ControllerInfo
-	states                                                          map[uint32]xinputGamepad
-	guides                                                          map[uint32]bool
-	guidePressed                                                    uint32
-	virtualSourcePaths                                              []string
-	virtualKnownPaths                                               map[string]bool
-	joysticks                                                       map[uint32]bool
-	activeID                                                        uint32
-	nextDiscovery                                                   time.Time
-	failures                                                        int
-	initialized                                                     bool
-	mappingPaths                                                    []string
-	mappingFiles                                                    []controllerMappingFile
-	mappingHash, pendingMappingHash                                 [32]byte
-	mappingPending                                                  bool
-	nextMappingCheck                                                time.Time
-	mappingError                                                    string
-	mappingRevision                                                 uint64
+	dll                                                              *windows.DLL
+	init, quit, setMainReady, setHint, getError, getVersion          *windows.Proc
+	pump, flush, getGamepads, free, open, close, connected           *windows.Proc
+	button, axis, name, addMappings                                  *windows.Proc
+	ioFromConstMem                                                   *windows.Proc
+	joystickPath                                                     *windows.Proc
+	getJoystick, numJoystickAxes, joystickAxis                       *windows.Proc
+	numJoystickButtons, joystickButton, numJoystickHats, joystickHat *windows.Proc
+	serial, realType                                                 *windows.Proc
+	connectionState                                                  *windows.Proc
+	rumble                                                           *windows.Proc
+	rumbling                                                         map[uint32]sdlRumbleState
+	testRumbleID                                                     uint32
+	testRumbleOwner                                                  *controllerTestRequest
+	testRumbleUntil                                                  time.Time
+	mapping, getJoysticks, joystickName, vendor, product, isGamepad  *windows.Proc
+	gamepads                                                         map[uint32]uintptr
+	paths                                                            map[uint32]string
+	mappings                                                         map[uint32]string
+	info                                                             map[uint32]ControllerInfo
+	states                                                           map[uint32]xinputGamepad
+	guides                                                           map[uint32]bool
+	guidePressed                                                     uint32
+	virtualSourcePaths                                               []string
+	virtualKnownPaths                                                map[string]bool
+	refreshAfterVirtual                                              bool
+	joysticks                                                        map[uint32]bool
+	activeID                                                         uint32
+	nextDiscovery                                                    time.Time
+	failures                                                         int
+	initialized                                                      bool
+	mappingPaths                                                     []string
+	mappingFiles                                                     []controllerMappingFile
+	overrideRows                                                     []string
+	mappingHash, pendingMappingHash                                  [32]byte
+	mappingPending                                                   bool
+	nextMappingCheck                                                 time.Time
+	mappingError                                                     string
+	mappingRevision                                                  uint64
 }
 
 func openSDLBackend() (*sdlBackend, error) {
@@ -89,6 +92,8 @@ func openSDLBackend() (*sdlBackend, error) {
 		{"SDL_GetJoystickPathForID", &s.joystickPath},
 		{"SDL_GetGamepadJoystick", &s.getJoystick}, {"SDL_GetNumJoystickAxes", &s.numJoystickAxes},
 		{"SDL_GetJoystickAxis", &s.joystickAxis},
+		{"SDL_GetNumJoystickButtons", &s.numJoystickButtons}, {"SDL_GetJoystickButton", &s.joystickButton},
+		{"SDL_GetNumJoystickHats", &s.numJoystickHats}, {"SDL_GetJoystickHat", &s.joystickHat},
 		{"SDL_GetGamepadSerial", &s.serial}, {"SDL_GetRealGamepadType", &s.realType},
 		{"SDL_GetGamepadConnectionState", &s.connectionState},
 		{"SDL_RumbleGamepad", &s.rumble},
@@ -167,6 +172,7 @@ func (s *sdlBackend) loadMappings() {
 		}
 	}
 	s.mappingFiles, s.mappingHash = files, hash
+	s.overrideRows = controllerOverrideRows(files)
 }
 
 func (s *sdlBackend) loadMappingData(file controllerMappingFile) error {
@@ -229,6 +235,7 @@ func (s *sdlBackend) checkMappingChanges(now time.Time) error {
 		return nil
 	}
 	s.mappingFiles, s.mappingHash, s.mappingError = files, hash, ""
+	s.overrideRows = controllerOverrideRows(files)
 	lgx.Info("SDL3 controller mappings reloaded; waiting for neutral controller input")
 	return nil
 }
@@ -254,7 +261,25 @@ func (s *sdlBackend) rebuildMappings(files []controllerMappingFile) error {
 }
 
 func (s *sdlBackend) poll(now time.Time) (xinputGamepad, uint32, int, error) {
+	pollStarted := time.Now()
+	defer func() {
+		if elapsed := time.Since(pollStarted); elapsed >= 250*time.Millisecond {
+			lgx.Warnf("SDL3 input poll slow elapsed=%s connected=%d activeID=%d", elapsed.Round(time.Millisecond), len(s.gamepads), s.activeID)
+		}
+	}()
 	s.guidePressed = 0
+	if s.refreshAfterVirtual && len(s.virtualSourcePaths) == 0 {
+		s.refreshAfterVirtual = false
+		started := time.Now()
+		// Helper exit restores HidHide and removes its Xbox devices. Recreate
+		// our private SDL input state now, rather than retaining DirectInput's
+		// pre-cleanup enumeration through delayed Windows hotplug rescans.
+		s.mappingRevision++
+		if err := s.rebuildMappings(s.mappingFiles); err != nil {
+			return xinputGamepad{}, 0, 0, fmt.Errorf("refresh SDL3 after virtual input: %w", err)
+		}
+		lgx.Infof("SDL3 input refreshed after virtual session elapsed=%s; waiting for neutral controller input", time.Since(started).Round(time.Millisecond))
+	}
 	if err := s.checkMappingChanges(now); err != nil {
 		return xinputGamepad{}, 0, 0, err
 	}
@@ -398,6 +423,7 @@ func (s *sdlBackend) refresh() error {
 			lgx.Infof("SDL3 gamepad mapping id=%d mapping=%q", id, s.mappings[id])
 			s.free.Call(mapping)
 		}
+		s.info[id] = s.applyCustomMapping(s.info[id], s.mappings[id])
 	}
 	return nil
 }
@@ -405,6 +431,9 @@ func (s *sdlBackend) refresh() error {
 func (s *sdlBackend) setVirtualSources(paths []string) {
 	if slices.Equal(s.virtualSourcePaths, paths) {
 		return
+	}
+	if len(s.virtualSourcePaths) > 0 && len(paths) == 0 {
+		s.refreshAfterVirtual = true
 	}
 	s.virtualSourcePaths = slices.Clone(paths)
 	s.virtualKnownPaths = make(map[string]bool)
@@ -431,7 +460,9 @@ func (s *sdlBackend) inventory() []controllerDevice {
 	for _, id := range ids {
 		info := s.info[id]
 		info.Active = id == s.activeID
-		result = append(result, controllerDevice{info: info, path: s.paths[id], state: s.states[id], instance: id})
+		info.InputSource = uint64(3)<<32 | uint64(id)
+		guid := strings.SplitN(s.mappings[id], ",", 2)[0]
+		result = append(result, controllerDevice{info: info, path: s.paths[id], state: s.states[id], instance: id, guid: guid, revision: s.mappingRevision, mapping: s.mappings[id]})
 	}
 	return result
 }

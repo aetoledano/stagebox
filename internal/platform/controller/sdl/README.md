@@ -53,7 +53,7 @@ cancellation. Validate HTTP status, exact declared length, UTF-8/row structure
 same-directory temporary file and atomically promote it with Windows
 `MoveFileEx`/`REPLACE_EXISTING`. Identical content skips rewriting and reload.
 Failures keep the existing base. Before the first changed-base replacement,
-retain its original bytes in `assets/gamecontrollerdb-before-refresh.txt` only
+retain its original bytes in `assets/gamecontrollerdb-backup.txt` only
 if that backup is absent, allowing migration of previous manual base edits.
 The embedded upstream license is copied beside the base only when missing.
 Only the managed base is replaced; no recurring request during a session.

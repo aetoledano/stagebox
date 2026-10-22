@@ -18,6 +18,7 @@
   <text x="236" y="287" text-anchor="middle" fill="#b1c9bc" font-family="sans-serif" font-size="11">D-PAD</text>
   <g data-button="BACK"><rect x="267" y="136" width="38" height="27" rx="12" fill="#243d30" stroke="#779e87"/><text x="286" y="154" text-anchor="middle" fill="#e6f6ec" font-family="sans-serif" font-size="9">BACK</text></g>
   <g data-button="START"><rect x="333" y="136" width="41" height="27" rx="12" fill="#243d30" stroke="#779e87"/><text x="353" y="154" text-anchor="middle" fill="#e6f6ec" font-family="sans-serif" font-size="9">START</text></g>
+  <g data-button="GUIDE"><circle cx="320" cy="107" r="12" fill="#243d30" stroke="#779e87"/><path d="M314 107L320 102L326 107M316 106V112H324V106" fill="none" stroke="#e6f6ec" stroke-width="1.5"/></g>
   <g data-button="Y"><title>North face button</title><circle cx="480" cy="117" r="21" fill="#243d30" stroke="#779e87"/></g>
   <g data-button="X"><title>West face button</title><circle cx="438" cy="159" r="21" fill="#243d30" stroke="#779e87"/></g>
   <g data-button="B"><title>East face button</title><circle cx="522" cy="159" r="21" fill="#243d30" stroke="#779e87"/></g>

@@ -198,6 +198,11 @@ type ControllerBridge struct {
 	preferences                       *controllerPreferenceStore
 	inventory                         atomic.Pointer[controllerInventory]
 	testing                           atomic.Pointer[controllerTestRequest]
+	mappingMu                         sync.Mutex
+	mappingCapture                    *controllerMappingCapture
+	mappingActive                     atomic.Bool
+	mappingShortcut                   atomic.Pointer[controllerMappingShortcut]
+	nextMappingEvent                  time.Time
 	testRumble                        atomic.Pointer[controllerRumbleRequest]
 	rumbleTarget                      atomic.Pointer[controllerTestRequest]
 	loggedTest                        *controllerTestRequest // SDL owner only
@@ -559,7 +564,7 @@ func (b *ControllerBridge) loop() {
 		}
 
 		now := time.Now()
-		guideAllowed := b.paused.Load() == 0 && b.mouse.Load() == 0 && b.keyboard.Load() == 0 && b.gameKeys.Load() == 0 && b.testing.Load() == nil
+		guideAllowed := b.paused.Load() == 0 && b.mouse.Load() == 0 && b.keyboard.Load() == 0 && b.gameKeys.Load() == 0 && b.testing.Load() == nil && !b.mappingActive.Load() && b.mappingShortcut.Load() == nil
 		if guideAllowed && LauncherHasFocus() {
 			lastLauncherFocus = now
 		}
@@ -600,7 +605,8 @@ func (b *ControllerBridge) loop() {
 				for _, device := range devices {
 					launcherPads = append(launcherPads, launcherPadSample{id: uint64(3)<<32 | uint64(device.instance), state: device.state})
 				}
-				b.publishInventory(devices, now)
+				b.publishInventory(devices, now, sdl.overrideRows)
+				b.pollControllerMapping(sdl, now)
 				b.publishTestState(sdl, now)
 				if virtual != nil {
 					virtual.publishDevices(devices)
@@ -621,6 +627,7 @@ func (b *ControllerBridge) loop() {
 			}
 		}
 		if sdl == nil {
+			b.pollControllerMapping(nil, now)
 			b.pollTestRumble(nil, now)
 			b.publishInventory(nil, now)
 			b.publishTestState(nil, now)
@@ -654,7 +661,7 @@ func (b *ControllerBridge) loop() {
 			connectedControllers.Store(int32(len(launcherPads)))
 		}
 		menuEnabled := b.paused.Load() == 0 && b.mouse.Load() == 0 && b.keyboard.Load() == 0 && b.gameKeys.Load() == 0 && b.testing.Load() == nil && LauncherHasFocus()
-		b.emitLauncherActions(navigation.update(launcherPads, menuEnabled, now))
+		b.emitLauncherActions(b.mappingShortcutActions(sdl, navigation.update(launcherPads, menuEnabled, now), menuEnabled, now))
 		if currentID != deviceID {
 			resetDevice()
 			deviceID = currentID

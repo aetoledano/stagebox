@@ -32,12 +32,32 @@ func (b *ControllerBridge) Controllers() []ControllerInfo {
 	if inventory := b.inventory.Load(); inventory != nil {
 		devices = inventory.devices
 	}
-	return b.preferences.list(devices)
+	result := b.preferences.list(devices)
+	if inventory := b.inventory.Load(); inventory != nil {
+		for i, info := range result {
+			if info.NativeXInput || !validMappingGUID(info.MappingGUID) {
+				continue
+			}
+			result[i].CustomMapping = false
+			for _, row := range inventory.overrides {
+				if mappingOverrideMatches(row, info.MappingGUID) {
+					result[i].CustomMapping = true
+					result[i].Mode = ControllerVirtual
+					result[i].Known = true
+					break
+				}
+			}
+		}
+	}
+	return result
 }
 
 func (b *ControllerBridge) SetControllerDefault(id, mode string) error {
 	for _, info := range b.Controllers() {
 		if info.ID == id {
+			if !info.Connected {
+				return fmt.Errorf("controller disconnected; reconnect it to change settings")
+			}
 			return b.preferences.save(info, mode)
 		}
 	}
@@ -115,9 +135,17 @@ func (b *ControllerBridge) SelectController(id string) error {
 func (b *ControllerBridge) TestController(id string) error {
 	b.rumbleTarget.Store(nil)
 	if id == "" {
+		b.mappingShortcut.Store(nil)
+		b.mappingMu.Lock()
+		b.mappingCapture = nil
+		b.mappingActive.Store(false)
+		b.mappingMu.Unlock()
 		b.testing.Store(nil)
 		b.resetInput.Store(true)
 		return nil
+	}
+	if b.IsMapping() {
+		return fmt.Errorf("finish or cancel custom mapping before testing")
 	}
 	if err := b.SelectController(id); err != nil {
 		return err
@@ -129,8 +157,12 @@ func (b *ControllerBridge) TestController(id string) error {
 
 // Called only on SDL's owner. The UI sees immutable snapshots; profiles and
 // file IO are handled by Wails request goroutines, not by SDL callbacks.
-func (b *ControllerBridge) publishInventory(devices []controllerDevice, now time.Time) {
-	b.inventory.Store(&controllerInventory{devices: devices})
+func (b *ControllerBridge) publishInventory(devices []controllerDevice, now time.Time, overrides ...[]string) {
+	snapshot := &controllerInventory{devices: devices}
+	if len(overrides) > 0 {
+		snapshot.overrides = overrides[0]
+	}
+	b.inventory.Store(snapshot)
 	if lost := b.releaseMissingTest(devices); lost != nil {
 		lgx.Infof("controller test grab released id=%s reason=disconnected", lost.id)
 		runtime.EventsEmit(b.ctx, "controller:test-released", map[string]string{"id": lost.id, "reason": "disconnected"})
@@ -179,6 +211,11 @@ func (b *ControllerBridge) publishTestState(s *sdlBackend, now time.Time) {
 			for id, info := range s.info {
 				if info.ID == test.id {
 					state = diagnosticState(test.id, s.states[id])
+					// Guide is tracked outside the normalized XInput payload.
+					// Include its held state only in this controller's diagnostics.
+					if s.guides[id] {
+						state.Buttons = append(state.Buttons, "GUIDE")
+					}
 					sources := triggerMappingSources(s.mappings[id])
 					state.LeftTriggerSource, state.RightTriggerSource = sources[0], sources[1]
 					handle := s.gamepads[id]
@@ -225,4 +262,6 @@ func (b *ControllerBridge) NeedsVirtualInput(gameEnabled bool) bool {
 	return len(b.virtualRoutes(gameEnabled)) > 0
 }
 
-func (b *ControllerBridge) IsTesting() bool { return b != nil && b.testing.Load() != nil }
+func (b *ControllerBridge) IsTesting() bool {
+	return b != nil && (b.testing.Load() != nil || b.mappingActive.Load())
+}

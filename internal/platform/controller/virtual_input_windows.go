@@ -134,10 +134,11 @@ func (b *ControllerBridge) DisableVirtualInput() error {
 	if session == nil {
 		return nil
 	}
+	started := time.Now()
 	err := session.close()
 	b.virtualInput.CompareAndSwap(session, nil)
 	b.resetInput.Store(true)
-	lgx.Info("virtual Xbox input session closed")
+	lgx.Infof("virtual Xbox input session closed elapsed=%s err=%v", time.Since(started).Round(time.Millisecond), err)
 	return err
 }
 

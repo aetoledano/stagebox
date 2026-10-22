@@ -74,7 +74,15 @@ func SendKeyStrokeToPID(pid uint32, key string) bool {
 func ConnectedCount() int                                         { return 0 }
 func (b *ControllerBridge) HasConnectedBluetoothController() bool { return false }
 
-func (b *ControllerBridge) IsTesting() bool                                { return false }
+func (b *ControllerBridge) IsTesting() bool                           { return false }
+func (b *ControllerBridge) IsMapping() bool                           { return false }
+func (b *ControllerBridge) SetControllerMappingShortcut(string) error { return nil }
+func (b *ControllerBridge) BeginControllerMapping(string) (ControllerMappingState, error) {
+	return ControllerMappingState{}, fmt.Errorf("custom mapping requires Windows SDL input")
+}
+func (b *ControllerBridge) ControllerMappingAction(string, string) (ControllerMappingState, error) {
+	return ControllerMappingState{}, fmt.Errorf("custom mapping requires Windows SDL input")
+}
 func (b *ControllerBridge) RememberBluetoothControllers() error            { return nil }
 func (b *ControllerBridge) ControllerProfilesForBluetooth(string) []string { return nil }
 func (b *ControllerBridge) RemoveControllerProfiles([]string) error {

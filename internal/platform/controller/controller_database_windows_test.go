@@ -16,6 +16,39 @@ import (
 const testControllerMapping = "03000000c82d00001230000000000000,8BitDo Ultimate,a:b0,back:b10,start:b11,platform:Windows,\n"
 const testXInputControllerMapping = "xinput,XInput Controller,a:b0,back:b6,start:b7,platform:Windows,\n"
 
+func TestControllerDatabaseMigratesBackupWithoutOverwriting(t *testing.T) {
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, "gamecontrollerdb-before-refresh.txt")
+	backup := filepath.Join(dir, "gamecontrollerdb-backup.txt")
+	if err := os.WriteFile(legacy, []byte("original manual mappings"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateControllerDatabaseBackup(dir); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(backup)
+	if err != nil || string(data) != "original manual mappings" {
+		t.Fatalf("backup not preserved: %q %v", data, err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatal("legacy name was not migrated")
+	}
+	if err := os.WriteFile(legacy, []byte("different older backup"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateControllerDatabaseBackup(dir); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(backup)
+	if string(data) != "original manual mappings" {
+		t.Fatal("existing backup overwritten")
+	}
+	data, _ = os.ReadFile(legacy)
+	if string(data) != "different older backup" {
+		t.Fatal("distinct legacy backup discarded")
+	}
+}
+
 func TestControllerDatabaseLoadsBaseBeforeOverrides(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
@@ -72,7 +105,7 @@ func TestControllerDatabaseRefreshesBaseAndPreservesOverrides(t *testing.T) {
 	if err != nil || string(data) != manual {
 		t.Fatalf("manual overrides changed: data=%q err=%v", data, err)
 	}
-	data, err = os.ReadFile(filepath.Join(filepath.Dir(path), "gamecontrollerdb-before-refresh.txt"))
+	data, err = os.ReadFile(filepath.Join(filepath.Dir(path), "gamecontrollerdb-backup.txt"))
 	if err != nil || string(data) != initial {
 		t.Fatalf("original base not backed up: data=%q err=%v", data, err)
 	}

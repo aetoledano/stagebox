@@ -16,8 +16,17 @@
 .controller-row strong, .controller-mode strong { font-size:17px; }
 .controller-id { display:inline-block; vertical-align:middle; margin-left:7px; padding:3px 7px; border:1px solid #668674; border-radius:5px; color:#c4decf; font:600 12px/1.2 monospace; letter-spacing:.04em; white-space:nowrap; }
 .controller-row small, .controller-mode small, .controller-meta { color:#aec6b8; font-size:14px; }
+.controllers-panel .controller-disconnected { position:relative; overflow:hidden; color:#939c97; background:#1c2420; border-color:#3e4842; }
+.controller-disconnected small, .controller-disconnected .controller-id { color:#8f9993; }
+.controller-disconnected .controller-id { border-color:#4b5650; }
+.controller-row .controller-forget-hint { font-size:12px; color:#b8c1bc; }
+.controller-disconnected::after { content:""; position:absolute; bottom:0; left:0; height:3px; width:100%; background:#cedbd3; transform:scaleX(0); transform-origin:left; }
+.controller-forget-holding::after { transform:scaleX(1); transition:transform 1.5s linear; }
 .controller-mode[aria-pressed="true"] { border-color:var(--accent); background:#183f28; }
 .controller-test-button, .controller-stop-test { padding:13px 20px; margin-top:10px; }
+.controller-settings-actions { display:flex; flex-wrap:wrap; gap:16px; padding-top:14px; }
+.controller-settings-actions .controller-test-button { margin-top:0; }
+.controller-mapping-shortcut { padding:12px 16px; color:#bde9ff; background:#16354a; border:1px solid #4d8eae; border-radius:10px; }
 .controllers-panel .controller-remove-button { display:block; padding:13px 20px; margin-top:18px; color:#ffd0d0; background:#382322; border-color:#825453; }
 .controller-test-actions { display:flex; gap:12px; flex-wrap:wrap; }
 .controller-rumble-test { padding:13px 20px; margin-top:10px; }
@@ -38,3 +47,27 @@
 .controller-axes { font-family:monospace; font-size:13px; text-align:center; white-space:pre-wrap; color:#c8ddd1; }
 .steam-guide-hint { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); z-index:1600; max-width:calc(100% - 48px); box-sizing:border-box; padding:13px 20px; border:1px solid #668674; border-radius:10px; background:#101b15ee; color:#d8ffed; font-size:16px; text-align:center; pointer-events:none; }
 .steam-guide-hint[hidden] { display:none; }
+.controller-mapping-layouts { display:flex; gap:12px; margin:22px 0; flex-wrap:wrap; }
+.controller-mapping-layouts button, .controller-test-actions button { padding:12px 18px; }
+.controller-mapping-layouts button[aria-pressed="true"] { border-color:var(--accent); background:#183f28; }
+.controller-mapping-progress { display:flex; align-items:center; gap:20px; color:#b2c9bc; font-size:14px; }
+.controller-mapping-progress progress { flex:1; height:6px; accent-color:var(--accent); }
+.controller-mapping-diagram svg { max-height:245px; }
+.controller-mapping-prompt, .controller-mapping-hint { text-align:center; }
+.controller-mapping-prompt { color:#76d7ff; margin-top:16px !important; }
+.controller-mapping-hint { color:#c8ddd1; min-height:42px; line-height:1.5; }
+.controller-mapping-diagram .mapping-target { fill:#42bfff; stroke:#e2f7ff; filter:drop-shadow(0 0 12px #42bfffe6); animation:mapping-glow 1.25s ease-in-out infinite; }
+.controller-mapping-diagram .mapping-target > circle, .controller-mapping-diagram .mapping-target > rect:first-of-type { fill:#42bfff; stroke:#e2f7ff; stroke-width:3; }
+.controller-mapping-diagram .mapping-face-label { fill:#eef9ff; font:800 17px sans-serif; pointer-events:none; }
+.controller-mapping-diagram .mapping-target .mapping-face-label { fill:#062c42; }
+.controller-mapping-diagram .mapping-motion-arrow { fill:none; stroke:#fff; stroke-width:5; stroke-linecap:round; stroke-linejoin:round; filter:drop-shadow(0 0 5px #1676a8); pointer-events:none; }
+.controller-mapping-tools { margin-top:18px; color:#aec6b8; font-size:13px; }
+.controller-mapping-tools summary { cursor:pointer; }
+.controller-mapping-retry { padding:12px 18px; }
+.controller-mapping-saving { min-height:320px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:16px; }
+.controller-mapping-saving h3 { margin:0; color:#c4efff; }
+.controller-mapping-saving p { color:#aec6b8; margin:0; }
+.controller-mapping-spinner { width:58px; height:58px; border:4px solid #42bfff26; border-top-color:#76d7ff; border-radius:50%; animation:mapping-spin .8s linear infinite; box-shadow:0 0 28px #42bfff22; }
+@keyframes mapping-glow { 50% { filter:drop-shadow(0 0 20px #42bfff); } }
+@keyframes mapping-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .controller-mapping-diagram .mapping-target, .controller-mapping-spinner { animation:none; } }

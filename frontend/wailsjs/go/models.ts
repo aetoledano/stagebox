@@ -141,6 +141,8 @@ export namespace controller {
 	    connected: boolean;
 	    active: boolean;
 	    nativeXInput: boolean;
+	    customMapping: boolean;
+	    inputSource: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ControllerInfo(source);
@@ -156,6 +158,38 @@ export namespace controller {
 	        this.connected = source["connected"];
 	        this.active = source["active"];
 	        this.nativeXInput = source["nativeXInput"];
+	        this.customMapping = source["customMapping"];
+	        this.inputSource = source["inputSource"];
+	    }
+	}
+	export class ControllerMappingState {
+	    id: string;
+	    step: number;
+	    total: number;
+	    control: string;
+	    phase: string;
+	    binding: string;
+	    message: string;
+	    canSkip: boolean;
+	    bindings: Record<string, string>;
+	    command: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ControllerMappingState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.step = source["step"];
+	        this.total = source["total"];
+	        this.control = source["control"];
+	        this.phase = source["phase"];
+	        this.binding = source["binding"];
+	        this.message = source["message"];
+	        this.canSkip = source["canSkip"];
+	        this.bindings = source["bindings"];
+	        this.command = source["command"];
 	    }
 	}
 

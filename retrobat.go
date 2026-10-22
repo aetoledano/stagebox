@@ -255,6 +255,7 @@ func (a *App) OpenRetroBat() error {
 		if err == nil {
 			err = <-run.Done
 		}
+		returnStarted := time.Now()
 		err = a.finishSessionVirtualInput("RetroBat", err)
 		if a.ctx.Err() != nil {
 			return
@@ -268,22 +269,19 @@ func (a *App) OpenRetroBat() error {
 		cursor.SetCursorHidden(true)
 		a.endGameLaunchFeedback("retrobat", "RetroBat", err == nil)
 		a.bringBack()
-		// Settle native foreground ownership before accepting navigation.
-		deadline := time.Now().Add(2 * time.Second)
-		var focusedSince time.Time
-		for time.Now().Before(deadline) && a.ctx.Err() == nil {
-			if controller.LauncherHasFocus() {
-				if focusedSince.IsZero() {
-					focusedSince = time.Now()
-				}
-				if time.Since(focusedSince) >= 400*time.Millisecond {
-					break
-				}
-			} else {
-				focusedSince = time.Time{}
-				controller.FocusLauncherWindow()
+		// Navigation already checks foreground ownership on every poll and
+		// rearms from neutral input. Resume as soon as focus is reclaimed.
+		focusStarted := time.Now()
+		deadline := focusStarted.Add(2 * time.Second)
+		for !controller.LauncherHasFocus() && time.Now().Before(deadline) && a.ctx.Err() == nil {
+			if controller.FocusLauncherWindow() {
+				break
 			}
-			time.Sleep(100 * time.Millisecond)
+			select {
+			case <-a.ctx.Done():
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
 		}
 		if !controller.LauncherHasFocus() {
 			lgx.Warn("launcher foreground focus was not reclaimed after RetroBat session")
@@ -292,6 +290,7 @@ func (a *App) OpenRetroBat() error {
 			a.pad.Resume()
 		}
 		a.resumeKeyboardInput()
+		lgx.Infof("RetroBat launcher input resumed elapsed=%s focusWait=%s focused=%t", time.Since(returnStarted).Round(time.Millisecond), time.Since(focusStarted).Round(time.Millisecond), controller.LauncherHasFocus())
 	}()
 	return nil
 }

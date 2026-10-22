@@ -6,7 +6,7 @@ import { handleWifiControllerNav, handleWifiControllerPress } from "./wifi.js";
 import { handleSoundControllerNav, handleSoundControllerPress } from "./sound.js";
 import { handleLaunchFeedbackNav, handleLaunchFeedbackPress } from "./launchFeedback.js";
 import { gameOptionsOpen, openGameOptions, handleGameOptionsNav, handleGameOptionsPress } from "./gameOptions.js";
-import { handleControllersNav, handleControllersPress } from "./controllers.js";
+import { handleControllersNav, handleControllersPress, handleControllersButton } from "./controllers.js";
 import { handleBluetoothDevicesNav, handleBluetoothDevicesPress } from "./bluetoothDevices.js";
 
 
@@ -23,11 +23,12 @@ function cancelAHold() {
   aIntent.card?.classList.remove("gp-holding");
   aIntent = null;
 }
-function press(name) {
+function press(event) {
+  const { name, source = null } = typeof event === "string" ? { name: event } : event;
   if (name !== "A") cancelAHold();
   if (handleLaunchFeedbackPress(name)) return;
   if (handleBluetoothDevicesPress(name)) return;
-  if (handleControllersPress(name)) return;
+  if (handleControllersPress(name, source)) return;
   if (handleGameOptionsPress(name)) return;
   if (handleSoundControllerPress(name)) return;
   if (handleWifiControllerPress(name)) return;
@@ -37,6 +38,7 @@ function press(name) {
 }
 function physicalA({ name, down, cancelled, source = 0 }) {
   if (name !== "A") return;
+  if (handleControllersButton({name, down, cancelled, source})) { cancelAHold(); return; }
   if (!down) {
     if (aIntent && aIntent.source !== source) return;
     const intent = aIntent;
@@ -127,11 +129,11 @@ function nearestCardIndexFromBar(btn) {
   return best;
 }
 
-function move(dir) {
+function move(dir, source = null) {
   cancelAHold();
   if (handleLaunchFeedbackNav(dir)) return;
   if (handleBluetoothDevicesNav(dir)) return;
-  if (handleControllersNav(dir)) return;
+  if (handleControllersNav(dir, source)) return;
   if (handleGameOptionsNav(dir)) return;
   if (handleSoundControllerNav(dir)) return;
   if (handleWifiControllerNav(dir)) return;
@@ -195,7 +197,7 @@ export function controllerInit(opts) {
   updateClasses();
 
   // Wire Go -> JS events
-  EventsOn("pad:nav",   ({dir}) => move(dir));
+  EventsOn("pad:nav",   ({dir, source = null}) => move(dir, source));
   EventsOn("pad:press", press);
   EventsOn("pad:button", physicalA);
   ["game:launch-begin", "game:start", "games:loading", "bt:pairing-start"].forEach((event) => EventsOn(event, cancelAHold));

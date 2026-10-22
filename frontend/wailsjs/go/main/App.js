@@ -6,8 +6,16 @@ export function AdjustAudioVolume(arg1) {
   return window['go']['main']['App']['AdjustAudioVolume'](arg1);
 }
 
+export function BeginControllerMapping(arg1) {
+  return window['go']['main']['App']['BeginControllerMapping'](arg1);
+}
+
 export function ConnectWifiNetwork(arg1, arg2) {
   return window['go']['main']['App']['ConnectWifiNetwork'](arg1, arg2);
+}
+
+export function ControllerMappingAction(arg1, arg2) {
+  return window['go']['main']['App']['ControllerMappingAction'](arg1, arg2);
 }
 
 export function EnsureBT() {
@@ -104,6 +112,10 @@ export function SetAudioVolume(arg1) {
 
 export function SetControllerDefault(arg1, arg2) {
   return window['go']['main']['App']['SetControllerDefault'](arg1, arg2);
+}
+
+export function SetControllerMappingShortcut(arg1) {
+  return window['go']['main']['App']['SetControllerMappingShortcut'](arg1);
 }
 
 export function SetGameVirtualInput(arg1, arg2) {

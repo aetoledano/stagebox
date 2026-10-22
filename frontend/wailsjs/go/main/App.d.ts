@@ -10,7 +10,11 @@ import {wifi} from '../models';
 
 export function AdjustAudioVolume(arg1:number):Promise<audio.Status>;
 
+export function BeginControllerMapping(arg1:string):Promise<controller.ControllerMappingState>;
+
 export function ConnectWifiNetwork(arg1:string,arg2:string):Promise<void>;
+
+export function ControllerMappingAction(arg1:string,arg2:string):Promise<controller.ControllerMappingState>;
 
 export function EnsureBT():Promise<void>;
 
@@ -59,6 +63,8 @@ export function SelectController(arg1:string):Promise<void>;
 export function SetAudioVolume(arg1:number):Promise<audio.Status>;
 
 export function SetControllerDefault(arg1:string,arg2:string):Promise<Array<controller.ControllerInfo>>;
+
+export function SetControllerMappingShortcut(arg1:string):Promise<void>;
 
 export function SetGameVirtualInput(arg1:uuid.UUID,arg2:boolean):Promise<main.GameOptions>;
 

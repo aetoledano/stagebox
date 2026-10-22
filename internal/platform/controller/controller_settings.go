@@ -29,6 +29,9 @@ type ControllerInfo struct {
 	Connected        bool   `json:"connected"`
 	Active           bool   `json:"active"`
 	NativeXInput     bool   `json:"nativeXInput"`
+	CustomMapping    bool   `json:"customMapping"`
+	InputSource      uint64 `json:"inputSource"` // Live navigation identity; never persisted.
+	MappingGUID      string `json:"-"`
 	BluetoothAddress string `json:"-"`
 }
 
@@ -37,15 +40,23 @@ type controllerDevice struct {
 	path     string
 	state    xinputGamepad
 	instance uint32
+	guid     string
+	revision uint64
+	mapping  string
 }
 
-type controllerInventory struct{ devices []controllerDevice }
+type controllerInventory struct {
+	devices   []controllerDevice
+	overrides []string
+}
 type controllerPreference struct {
 	Name             string `json:"name"`
 	Connection       string `json:"connection"`
 	Mode             string `json:"mode"`
 	NativeXInput     bool   `json:"nativeXInput,omitempty"`
 	BluetoothAddress string `json:"bluetoothAddress,omitempty"`
+	CustomMapping    bool   `json:"customMapping,omitempty"`
+	MappingGUID      string `json:"mappingGuid,omitempty"`
 }
 type controllerPreferences struct {
 	Version     int                             `json:"version"`
@@ -109,6 +120,9 @@ func controllerPreferenceStoreAt(path string) (*controllerPreferenceStore, error
 		return nil, fmt.Errorf("unsupported controller preference format")
 	}
 	for id, preference := range store.data.Controllers {
+		if (preference.MappingGUID != "" && !validMappingGUID(preference.MappingGUID)) || (preference.CustomMapping && (preference.Mode != ControllerVirtual || preference.NativeXInput || !validMappingGUID(preference.MappingGUID))) {
+			return nil, fmt.Errorf("invalid custom controller mapping preference")
+		}
 		if !validControllerID(id) || !validControllerMode(preference.Mode) || (preference.NativeXInput && preference.Mode != ControllerNative) || (preference.BluetoothAddress != "" && !validBluetoothAddress(preference.BluetoothAddress)) {
 			return nil, fmt.Errorf("invalid saved controller preference")
 		}
@@ -128,6 +142,9 @@ func validControllerMode(mode string) bool {
 func (s *controllerPreferenceStore) apply(info ControllerInfo) ControllerInfo {
 	info.Mode, info.Known = ControllerNative, info.NativeXInput
 	if s == nil || info.NativeXInput {
+		if info.CustomMapping && !info.NativeXInput {
+			info.Mode, info.Known = ControllerVirtual, true
+		}
 		return info
 	}
 	s.mu.Lock()
@@ -137,6 +154,9 @@ func (s *controllerPreferenceStore) apply(info ControllerInfo) ControllerInfo {
 		if info.BluetoothAddress == "" {
 			info.BluetoothAddress = saved.BluetoothAddress
 		}
+	}
+	if info.CustomMapping {
+		info.Mode, info.Known = ControllerVirtual, true
 	}
 	return info
 }
@@ -151,12 +171,15 @@ func (s *controllerPreferenceStore) save(info ControllerInfo, mode string) error
 	if info.NativeXInput && mode != ControllerNative {
 		return fmt.Errorf("this controller already provides native Xbox input")
 	}
+	if info.CustomMapping && mode != ControllerVirtual {
+		return fmt.Errorf("controllers with custom mappings always use Virtual Xbox input")
+	}
 	return s.edit(func(profiles map[string]controllerPreference) bool {
 		address := info.BluetoothAddress
 		if address == "" {
 			address = profiles[info.ID].BluetoothAddress
 		}
-		profiles[info.ID] = controllerPreference{Name: info.Name, Connection: info.Connection, Mode: mode, NativeXInput: info.NativeXInput, BluetoothAddress: address}
+		profiles[info.ID] = controllerPreference{Name: info.Name, Connection: info.Connection, Mode: mode, NativeXInput: info.NativeXInput, BluetoothAddress: address, CustomMapping: info.CustomMapping, MappingGUID: info.MappingGUID}
 		return true
 	})
 }
@@ -219,9 +242,15 @@ func (s *controllerPreferenceStore) rememberBluetooth(devices []controllerDevice
 		changed := false
 		for _, device := range devices {
 			info := device.info
-			if saved, exists := profiles[info.ID]; exists && validBluetoothAddress(info.BluetoothAddress) && (saved.BluetoothAddress != info.BluetoothAddress || saved.Connection != info.Connection) {
-				saved.BluetoothAddress = info.BluetoothAddress
+			if saved, exists := profiles[info.ID]; exists && ((validBluetoothAddress(info.BluetoothAddress) && saved.BluetoothAddress != info.BluetoothAddress) || saved.Connection != info.Connection || saved.CustomMapping != info.CustomMapping || saved.MappingGUID != info.MappingGUID || (info.CustomMapping && saved.Mode != ControllerVirtual)) {
+				if validBluetoothAddress(info.BluetoothAddress) {
+					saved.BluetoothAddress = info.BluetoothAddress
+				}
 				saved.Connection = info.Connection
+				saved.CustomMapping, saved.MappingGUID = info.CustomMapping, info.MappingGUID
+				if info.CustomMapping {
+					saved.Mode = ControllerVirtual
+				}
 				profiles[info.ID] = saved
 				changed = true
 			}
@@ -259,7 +288,7 @@ func (s *controllerPreferenceStore) list(devices []controllerDevice) []Controlle
 		s.mu.Lock()
 		for id, saved := range s.data.Controllers {
 			if !seen[id] {
-				result = append(result, ControllerInfo{ID: id, Name: saved.Name, Connection: saved.Connection, Mode: saved.Mode, Known: true, NativeXInput: saved.NativeXInput, BluetoothAddress: saved.BluetoothAddress})
+				result = append(result, ControllerInfo{ID: id, Name: saved.Name, Connection: saved.Connection, Mode: saved.Mode, Known: true, NativeXInput: saved.NativeXInput, BluetoothAddress: saved.BluetoothAddress, CustomMapping: saved.CustomMapping, MappingGUID: saved.MappingGUID})
 			}
 		}
 		s.mu.Unlock()

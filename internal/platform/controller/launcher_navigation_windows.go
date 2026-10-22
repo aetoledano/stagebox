@@ -14,9 +14,9 @@ func (b *ControllerBridge) emitLauncherActions(actions []launcherPadAction) {
 		case "button":
 			runtime.EventsEmit(b.ctx, "pad:button", map[string]any{"name": action.name, "down": action.down, "cancelled": action.cancelled, "source": action.source})
 		case "nav":
-			runtime.EventsEmit(b.ctx, "pad:nav", map[string]any{"dir": action.name})
+			runtime.EventsEmit(b.ctx, "pad:nav", map[string]any{"dir": action.name, "source": action.source})
 		case "press":
-			runtime.EventsEmit(b.ctx, "pad:press", action.name)
+			runtime.EventsEmit(b.ctx, "pad:press", map[string]any{"name": action.name, "source": action.source})
 		case "volume":
 			if b.volumeAction != nil {
 				b.volumeAction(action.name)

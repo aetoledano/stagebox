@@ -60,6 +60,9 @@ func ensureControllerDatabase(ctx context.Context, download bool) {
 		lgx.Warnf("prepare controller database assets: %v", err)
 		return
 	}
+	if err := migrateControllerDatabaseBackup(dir); err != nil {
+		lgx.Warnf("rename controller database backup: %v", err)
+	}
 	overrides := []byte("# StageBox manual controller overrides. This file is never downloaded or overwritten.\n# Add SDL mapping rows here with platform:Windows; valid edits reload automatically.\n# The complete upstream database is kept separately in gamecontrollerdb.txt.\n")
 	if err := publishControllerMappingFile(paths[2], overrides, false); err != nil {
 		lgx.Warnf("prepare controller overrides: %v", err)
@@ -143,7 +146,7 @@ func downloadControllerDatabase(ctx context.Context, path, url string, client *h
 		}
 		// Retain the first replaced local file so edits made under the previous
 		// shared-base policy can be moved into the dedicated overrides file.
-		backup := filepath.Join(filepath.Dir(path), "gamecontrollerdb-before-refresh.txt")
+		backup := filepath.Join(filepath.Dir(path), "gamecontrollerdb-backup.txt")
 		if err := publishControllerMappingFile(backup, oldData, false); err != nil {
 			return fmt.Errorf("back up previous controller database: %w", err)
 		}
@@ -157,6 +160,46 @@ func downloadControllerDatabase(ctx context.Context, path, url string, client *h
 		return err
 	}
 	lgx.Infof("controller database downloaded path=%q windowsMappings=%d bytes=%d source=%s", path, count, len(data), url)
+	return nil
+}
+
+func migrateControllerDatabaseBackup(dir string) error {
+	path := filepath.Join(dir, "gamecontrollerdb-backup.txt")
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	legacy := filepath.Join(dir, "gamecontrollerdb-before-refresh.txt")
+	file, err := os.Open(legacy)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	data, err := readControllerMappingData(file)
+	file.Close()
+	if err != nil {
+		return err
+	}
+	if err := publishControllerMappingFile(path, data, false); err != nil {
+		return err
+	}
+	// Another process may have created the new name meanwhile. Remove the old
+	// file only when the published backup is byte-for-byte the same snapshot.
+	current, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	published, err := readControllerMappingData(current)
+	current.Close()
+	if err != nil {
+		return err
+	}
+	if bytes.Equal(published, data) {
+		return os.Remove(legacy)
+	}
 	return nil
 }
 
