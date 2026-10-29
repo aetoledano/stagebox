@@ -2,6 +2,7 @@
 .controllers-overlay[hidden], .controllers-panel [hidden] { display:none; }
 .controllers-panel { display:flex; flex-direction:column; width:min(780px,calc(100% - 48px)); max-height:calc(100% - 64px); overflow:hidden; padding:30px; box-sizing:border-box; border-radius:18px; background:#101b15; color:#eef7f1; border:1px solid #385143; box-shadow:0 25px 100px #0009; }
 .controllers-panel > header, .controllers-panel > footer { flex-shrink:0; }
+.controllers-panel > footer { display:flex; flex-direction:column; }
 .controllers-content { min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; scrollbar-gutter:stable; padding:6px; margin:-6px; }
 .controllers-content::-webkit-scrollbar { width:8px; }
 .controllers-content::-webkit-scrollbar-thumb { background:#52685a; border-radius:8px; }

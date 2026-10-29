@@ -62,6 +62,27 @@ func (m *SteamGuideMonitor) Poll() (SteamGuideUI, error) {
 // Hide only an iconic foreground window, never dismiss a visible firmware,
 // sign-in or update prompt. Refresh owner and focus immediately before acting.
 func (m *SteamGuideMonitor) HideMinimized(ui SteamGuideUI) error {
+	if err := m.validateForeground(ui); err != nil {
+		return err
+	}
+	iconic, _, _ := procSteamIsIconic.Call(ui.Window)
+	if iconic != 0 {
+		procSteamShowWindowAsync.Call(ui.Window, 0) // SW_HIDE; no close message or process termination.
+	}
+	return nil
+}
+
+// During an explicit controller capture, background the verified Steam client
+// if its own Guide handler steals focus. Do not close it or accept any prompt.
+func (m *SteamGuideMonitor) BackgroundForControllerTest(ui SteamGuideUI) error {
+	if err := m.validateForeground(ui); err != nil {
+		return err
+	}
+	procSteamShowWindowAsync.Call(ui.Window, 6) // SW_MINIMIZE; the user can reopen Steam normally.
+	return nil
+}
+
+func (m *SteamGuideMonitor) validateForeground(ui SteamGuideUI) error {
 	process := m.tracker.processes[ui.PID]
 	if process == nil || process.refresh() != nil || !process.alive {
 		return fmt.Errorf("Steam guide window owner changed")
@@ -69,12 +90,8 @@ func (m *SteamGuideMonitor) HideMinimized(ui SteamGuideUI) error {
 	foreground, _, _ := procSteamGetForegroundWindow.Call()
 	var pid uint32
 	procGetWindowThreadProcessID.Call(ui.Window, uintptr(unsafe.Pointer(&pid)))
-	iconic, _, _ := procSteamIsIconic.Call(ui.Window)
 	if foreground != ui.Window || pid != ui.PID {
 		return fmt.Errorf("Steam guide foreground changed")
-	}
-	if iconic != 0 {
-		procSteamShowWindowAsync.Call(ui.Window, 0) // SW_HIDE; no close message or process termination.
 	}
 	return nil
 }

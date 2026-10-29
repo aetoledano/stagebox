@@ -98,7 +98,7 @@ export function initGameOptions(closeCallback) {
       <span class="game-options-state">Off</span>
     </button>
     <p class="game-options-status" role="status"></p>
-    <button class="game-options-close">Back</button>
+    <button class="game-options-close dialog-close" type="button">Close</button>
     <div class="game-options-hint">A · select &nbsp; B · back</div>
   </section>`;
   (document.getElementById("stagebox-scale-root") || document.body).append(overlay);

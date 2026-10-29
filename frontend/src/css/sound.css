@@ -20,9 +20,9 @@
   background: rgba(12, 12, 12, .9); backdrop-filter: blur(12px); color: #eaeaea;
   box-shadow: 0 18px 46px rgba(0, 0, 0, .52);
 }
-.sound-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sound-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .sound-head h2 { margin: 0; font-size: 18px; }
-.sound-actions { display: flex; gap: 8px; flex: none; }
+.sound-actions { display: flex; gap: 8px; flex: none; margin-left: auto; }
 .sound-icon-btn {
   width: 34px; height: 34px; padding: 0; flex: none; border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, .14); background: rgba(28, 28, 28, .92); color: #eee; font-size: 18px;

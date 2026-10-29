@@ -246,8 +246,8 @@ func (a *App) beginGameSession(name string) bool {
 		lgx.Debugf("launch ignored name=%q: another session is active", name)
 		return false
 	}
-	if a.pad != nil && a.pad.IsMapping() {
-		lgx.Debugf("launch ignored name=%q: controller mapping is active", name)
+	if a.pad != nil && a.pad.IsTesting() {
+		lgx.Debugf("launch ignored name=%q: controller test or mapping is active", name)
 		return false
 	}
 	if !controller.LauncherHasFocus() {

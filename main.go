@@ -24,7 +24,7 @@ var assets embed.FS
 //go:embed assets/loading-space.png
 var runtimeAssets embed.FS
 
-var appVersion = "0.38"
+var appVersion = "0.42"
 
 func main() {
 	defer lgx.RecoverPanic("startup")

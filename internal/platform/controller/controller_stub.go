@@ -17,7 +17,7 @@ type GameKeyMap struct {
 	MouseSensitivity int
 }
 
-func StartControllerBridge(ctx context.Context, volumeAction func(string), downloadDatabase bool, guideAction ...func(string)) *ControllerBridge {
+func StartControllerBridge(ctx context.Context, volumeAction func(string), downloadDatabase bool, guideAction ...func(string, bool)) *ControllerBridge {
 	return nil
 }
 func StartKeyboardBridge(ctx context.Context, volumeAction func(string)) *KeyboardBridge {

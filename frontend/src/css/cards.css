@@ -16,7 +16,7 @@
 /* Card container */
 .card{
   position: relative;
-  cursor: pointer;
+  pointer-events: none;
   color: #fff;
 
   /* shine + depth (original) */

@@ -82,5 +82,6 @@ body {
 }
 
 /* Helpers */
+.content[inert], .topbar[inert] { pointer-events: none; }
 .mdl2 { font-family: "Segoe MDL2 Assets","Segoe UI Symbol",sans-serif; }
 .monoicon { font-family: "Segoe UI Symbol","Segoe UI",system-ui,sans-serif; }

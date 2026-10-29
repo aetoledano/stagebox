@@ -1,0 +1,37 @@
+/* Shared action sizing keeps neighboring controls aligned with Close.
+   The close SVG mask and pseudo content survive textContent updates. */
+button.dialog-action.dialog-action, button.dialog-close.dialog-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  box-sizing: border-box;
+  flex: none;
+  width: auto;
+  min-width: 104px;
+  min-height: 40px;
+  height: auto;
+  padding: 10px 16px;
+  border: 1px solid #52685a;
+  border-radius: 10px;
+  background: #22362a;
+  color: #eef7f1;
+  font: 600 14px/1.2 var(--ui-font);
+  white-space: nowrap;
+  cursor: pointer;
+}
+button.dialog-close::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  flex: none;
+  background: currentColor;
+  -webkit-mask: url("../assets/images/close-ico.svg") center / contain no-repeat;
+  mask: url("../assets/images/close-ico.svg") center / contain no-repeat;
+}
+button.dialog-action.dialog-action:not(:disabled):hover,
+button.dialog-close.dialog-close:not(:disabled):hover { background: #2c4736; border-color: #789782; }
+button.dialog-action.dialog-action:focus-visible, button.dialog-action.dialog-action.gp-focus,
+button.dialog-close.dialog-close:focus-visible, button.dialog-close.dialog-close.gp-focus { outline: 3px solid var(--accent); outline-offset: 2px; }
+button.dialog-action.dialog-action:disabled, button.dialog-close.dialog-close:disabled { opacity: .5; cursor: default; }
+button.dialog-action.dialog-action[hidden], button.dialog-close.dialog-close[hidden] { display: none; }

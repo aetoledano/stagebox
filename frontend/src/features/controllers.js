@@ -68,6 +68,10 @@ function focus(at = index) {
   buttons[index].focus({ preventScroll: true });
   buttons[index].scrollIntoView({ block: "nearest", inline: "nearest" });
 }
+function setBackLabel(label) {
+  back.textContent = label;
+  back.classList.toggle("dialog-close", label === "Close");
+}
 function message(text, error = false) { status.textContent = text; status.dataset.error = String(error); }
 function controllerTag(pad) {
   const id = pad?.id || "";
@@ -85,7 +89,7 @@ function controllerName(element, pad) {
 function renderList() {
   cancelForgetHold();
   title.textContent = "Controllers";
-  back.textContent = "Back";
+  setBackLabel("Close");
   list.hidden = false; detail.hidden = true;
   const focused = document.activeElement?.dataset.controllerId;
   list.replaceChildren();
@@ -125,9 +129,9 @@ function renderList() {
 
 function renderDetails() {
   const pad = current();
-  if (!pad) { view = "list"; back.textContent = "Back"; renderList(); message("This controller profile is no longer available.", true); return; }
+  if (!pad) { view = "list"; setBackLabel("Close"); renderList(); message("This controller profile is no longer available.", true); return; }
   title.textContent = view === "remove" ? "Remove saved controller?" : view === "prompt" ? "New controller connected" : "Controller settings";
-  back.textContent = view === "remove" ? "Cancel" : view === "prompt" ? "Later" : "Back";
+  setBackLabel(view === "remove" ? "Cancel" : view === "prompt" ? "Later" : "Back");
   list.hidden = true; detail.hidden = false; detail.replaceChildren();
   const name = document.createElement("h3"); controllerName(name,pad);
   const connection = document.createElement("p"); connection.className = "controller-meta"; connection.textContent = `${pad.connection} · ${pad.connected ? "Use this controller to navigate" : "Disconnected"}`;
@@ -165,7 +169,7 @@ function renderDetails() {
 function beginMapping(quickStart=false) {
   if (busy || !current()?.connected) return;
   const revision=generation, pad=current(), fromPrompt=view==="prompt";
-  armMappingShortcut(""); view="mapping"; title.textContent="Map controller inputs"; back.textContent="Cancel";
+  armMappingShortcut(""); view="mapping"; title.textContent="Map controller inputs"; setBackLabel("Cancel");
   list.hidden=true; detail.hidden=false;
   mappingWizard=createControllerMapping({container:detail,id:pad.id,name:pad.name,message,focus,quickStart,onCapture:(captured)=>{ mappingCaptured=captured; },onDone:async(saved)=>{
     if (revision!==generation || !controllersOpen()) return;
@@ -193,7 +197,7 @@ async function removeSavedController() {
     const next = await RemoveSavedController(id);
     if (revision !== generation) return;
     controllers = next || []; dismissed.delete(id); selected = "";
-    view = "list"; back.textContent = "Back"; index = 0; message("Saved controller removed.");
+    view = "list"; setBackLabel("Close"); index = 0; message("Saved controller removed.");
   } catch (error) { if (revision === generation) message(String(error?.message || error),true); }
   finally {
     if (revision === generation && controllersOpen()) {
@@ -329,7 +333,7 @@ async function beginTest() {
     detail.querySelector(".controller-capture-test").addEventListener("click", toggleTestCapture);
     detail.querySelector(".controller-stop-test").addEventListener("click", stopTest);
     testExitSince = 0;
-    back.textContent = "Close"; resetDiagram(); message("Hold Select + Start (1s) to release."); focus(0);
+    setBackLabel("Close"); resetDiagram(); message("Hold Select + Start (1s) to release."); focus(0);
   } catch (error) { if (revision === generation) message(String(error?.message || error),true); }
   finally { if (revision === generation) busy = false; }
 }
@@ -337,7 +341,7 @@ async function stopTest() {
   if (view !== "test" || busy) return;
   const revision = generation;
   busy = true;
-  try { await TestController(""); await TestControllerRumble(""); if (revision !== generation) return; testCaptured = false; busy = false; view = "detail"; back.textContent = "Back"; renderDetails(); message(""); focus(0); if (current()?.connected && !current()?.nativeXInput) armMappingShortcut(selected); }
+  try { await TestController(""); await TestControllerRumble(""); if (revision !== generation) return; testCaptured = false; busy = false; view = "detail"; setBackLabel("Back"); renderDetails(); message(""); focus(0); if (current()?.connected && !current()?.nativeXInput) armMappingShortcut(selected); }
   catch (error) { if (revision === generation) message(String(error?.message || error),true); }
   finally { if (revision === generation) busy = false; }
 }
@@ -362,7 +366,7 @@ export async function closeControllers(force = false) {
     catch (error) { if (!force) { message(String(error),true); return; } }
   }
   if (view === "prompt") dismissed.add(selected);
-  generation++; captureRevision++; overlay.hidden = true; busy = false; testCaptured = false; recoveringDisconnect = false; back.textContent = "Back"; onClose();
+  generation++; captureRevision++; overlay.hidden = true; busy = false; testCaptured = false; recoveringDisconnect = false; setBackLabel("Close"); onClose();
 }
 async function goBack() {
   if (busy) return;
@@ -405,12 +409,12 @@ function maybePrompt(foregroundID = "") {
   if (document.querySelector("#tools-menu-overlay:not([hidden]), #sound-overlay:not([hidden]), #wifi-overlay:not([hidden]), .bluetooth-devices-overlay:not([hidden]), .game-options-overlay:not([hidden]), .launch-feedback:not([hidden])")) return;
   const unknown = controllers.find((pad) => pad.connected && !pad.known && !dismissed.has(pad.id) && (!foregroundID || pad.id === foregroundID));
   if (!unknown) return;
-  generation++; overlay.hidden = false; busy = false; back.textContent = "Later"; showDetails(unknown.id,true);
+  generation++; overlay.hidden = false; busy = false; setBackLabel("Later"); showDetails(unknown.id,true);
 }
 export function initControllers(closeCallback) {
   onClose = closeCallback || onClose;
   overlay = document.createElement("div"); overlay.className = "controllers-overlay"; overlay.hidden = true;
-  overlay.innerHTML = `<section class="controllers-panel" role="dialog" aria-modal="true" aria-labelledby="controllers-heading"><header><span>STAGEBOX INPUT</span><h2 id="controllers-heading">Controllers</h2></header><div class="controllers-content"><div class="controllers-list"></div><div class="controllers-detail" hidden></div></div><footer><p class="controllers-status" role="status"></p><button class="controllers-back">Back</button></footer></section>`;
+  overlay.innerHTML = `<section class="controllers-panel" role="dialog" aria-modal="true" aria-labelledby="controllers-heading"><header><span>STAGEBOX INPUT</span><h2 id="controllers-heading">Controllers</h2></header><div class="controllers-content"><div class="controllers-list"></div><div class="controllers-detail" hidden></div></div><footer><p class="controllers-status" role="status"></p><button type="button" class="controllers-back dialog-close">Close</button></footer></section>`;
   (document.getElementById("stagebox-scale-root") || document.body).append(overlay);
   panel = overlay.querySelector("section"); title = panel.querySelector("h2"); list = panel.querySelector(".controllers-list"); detail = panel.querySelector(".controllers-detail"); status = panel.querySelector(".controllers-status"); back = panel.querySelector(".controllers-back");
   back.addEventListener("click", () => view === "test" ? closeControllers() : goBack());

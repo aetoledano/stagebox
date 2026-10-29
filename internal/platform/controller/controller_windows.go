@@ -193,7 +193,7 @@ type ControllerBridge struct {
 	inputTargetPID                    atomic.Uint32
 	inputTargetWindow                 atomic.Uintptr
 	volumeAction                      func(string)
-	guideAction                       func(string)
+	guideAction                       func(string, bool)
 	virtualInput                      atomic.Pointer[virtualInputSession]
 	preferences                       *controllerPreferenceStore
 	inventory                         atomic.Pointer[controllerInventory]
@@ -225,7 +225,7 @@ type ControllerBridge struct {
 	killArmed   bool
 }
 
-func StartControllerBridge(ctx context.Context, volumeAction func(string), downloadDatabase bool, guideAction ...func(string)) *ControllerBridge {
+func StartControllerBridge(ctx context.Context, volumeAction func(string), downloadDatabase bool, guideAction ...func(string, bool)) *ControllerBridge {
 	ctx, cancel := context.WithCancel(ctx)
 	b := &ControllerBridge{
 		ctx:          ctx,
@@ -533,6 +533,7 @@ func (b *ControllerBridge) loop() {
 	var deviceID uint64
 	var mappingRevision uint64
 	var lastLauncherFocus time.Time
+	var diagnosticGuideActive bool
 	resetDevice := func() {
 		b.releaseGameInputs()
 		b.prevGamepad = xinputGamepad{}
@@ -564,7 +565,10 @@ func (b *ControllerBridge) loop() {
 		}
 
 		now := time.Now()
-		guideAllowed := b.paused.Load() == 0 && b.mouse.Load() == 0 && b.keyboard.Load() == 0 && b.gameKeys.Load() == 0 && b.testing.Load() == nil && !b.mappingActive.Load() && b.mappingShortcut.Load() == nil
+		diagnosticGuide := b.IsTesting()
+		diagnosticStarted := diagnosticGuide && !diagnosticGuideActive
+		diagnosticGuideActive = diagnosticGuide
+		guideAllowed := b.paused.Load() == 0 && b.mouse.Load() == 0 && b.keyboard.Load() == 0 && b.gameKeys.Load() == 0 && b.mappingShortcut.Load() == nil
 		if guideAllowed && LauncherHasFocus() {
 			lastLauncherFocus = now
 		}
@@ -589,8 +593,18 @@ func (b *ControllerBridge) loop() {
 				sdl.setVirtualSources(nil)
 			}
 			state, id, count, err := sdl.poll(now)
-			if err == nil && sdl.guidePressed != 0 && guideAllowed && now.Sub(lastLauncherFocus) <= 150*time.Millisecond && b.guideAction != nil {
-				b.guideAction(sdl.info[sdl.guidePressed].ID) // Callback only queues work; no Steam/window IO on SDL's owner.
+			guideID := sdl.guidePressed
+			if diagnosticStarted && guideID == 0 {
+				// A raw hold can enter the mapper with Home already held.
+				for id, held := range sdl.guides {
+					if held {
+						guideID = id
+						break
+					}
+				}
+			}
+			if err == nil && guideID != 0 && guideAllowed && now.Sub(lastLauncherFocus) <= 150*time.Millisecond && b.guideAction != nil {
+				b.guideAction(sdl.info[guideID].ID, diagnosticGuide) // Queue only; no Steam/window IO on SDL's owner.
 			}
 			if sdl.mappingRevision != mappingRevision {
 				resetDevice()

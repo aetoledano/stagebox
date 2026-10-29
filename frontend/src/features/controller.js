@@ -8,6 +8,7 @@ import { handleLaunchFeedbackNav, handleLaunchFeedbackPress } from "./launchFeed
 import { gameOptionsOpen, openGameOptions, handleGameOptionsNav, handleGameOptionsPress } from "./gameOptions.js";
 import { handleControllersNav, handleControllersPress, handleControllersButton } from "./controllers.js";
 import { handleBluetoothDevicesNav, handleBluetoothDevicesPress } from "./bluetoothDevices.js";
+import { canActivateLauncher } from "./launcherInput.js";
 
 
 let getCards = () => [];
@@ -43,7 +44,7 @@ function physicalA({ name, down, cancelled, source = 0 }) {
     if (aIntent && aIntent.source !== source) return;
     const intent = aIntent;
     cancelAHold();
-    if (!cancelled && intent && !intent.opened && intent.card.isConnected && state.mode === "grid" && getCards()[state.i] === intent.card) {
+    if (!cancelled && intent && !intent.opened && canActivateLauncher() && intent.card.isConnected && state.mode === "grid" && getCards()[state.i] === intent.card) {
       onActivateCard?.(intent.card);
     }
     return;
@@ -59,6 +60,7 @@ function physicalA({ name, down, cancelled, source = 0 }) {
   aIntent = intent;
   card.classList.add("gp-holding");
   intent.timer = setTimeout(() => {
+    if (!canActivateLauncher()) { cancelAHold(); return; }
     if (aIntent !== intent || !card.isConnected || state.mode !== "grid" || getCards()[state.i] !== card || gameOptionsOpen()) return;
     intent.opened = true;
     card.classList.remove("gp-holding");
@@ -138,6 +140,7 @@ function move(dir, source = null) {
   if (handleSoundControllerNav(dir)) return;
   if (handleWifiControllerNav(dir)) return;
   if (handleControllerNav(dir)) return;
+  if (!canActivateLauncher()) return;
 
   if (state.mode === "grid") {
     const cards = getCards();
@@ -175,6 +178,7 @@ function move(dir, source = null) {
 }
 
 function activate() {
+  if (!canActivateLauncher()) return;
   if (state.mode === "grid") {
     const cards = getCards();
     if (!cards.length) return;

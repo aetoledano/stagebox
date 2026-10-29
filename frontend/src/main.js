@@ -5,6 +5,7 @@ import "./css/sound.css";
 import "./css/gameOptions.css";
 import "./css/controllers.css";
 import "./css/bluetoothDevices.css";
+import "./css/dialogs.css";
 import { OpenRetroBat, OpenSteam, Shutdown, Restart, ExitLauncher, LoadGames, Launch, SteamUpdateStates, Explorer, GetStatuses, Info, Warn, Error } from "/wailsjs/go/main/App.js";
 import { EventsOn } from "/wailsjs/runtime";
 import { initBTIndicator } from "./features/bluetooth.js";
@@ -23,6 +24,12 @@ import { initLaunchFeedback } from "./features/launchFeedback.js";
 import { initGameOptions, openGameOptions } from "./features/gameOptions.js";
 import { initControllers, openControllers } from "./features/controllers.js";
 import { initBluetoothDevices, openBluetoothDevices } from "./features/bluetoothDevices.js";
+import { canActivateLauncher, initLauncherInputGuard } from "./features/launcherInput.js";
+
+initLauncherInputGuard();
+function launchFromLibrary(id) {
+  if (canActivateLauncher()) Launch(id).catch(console.error);
+}
 
 const steamGuideHint = document.createElement("aside");
 steamGuideHint.className = "steam-guide-hint";
@@ -233,17 +240,17 @@ function upsertCard(rawGame) {
     virtualBadge.hidden = true;
     card.append(virtualBadge);
 
-    card.addEventListener("click", () => Launch(g.id).catch(console.error));
+    // Cards activate through keyboard or the controller router, never clicks.
     card.addEventListener("keydown", (e) => {
+      if (!canActivateLauncher()) return;
       if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
         e.preventDefault(); openGameOptions(card); return;
       }
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        Launch(g.id).catch(console.error);
+        launchFromLibrary(g.id);
       }
     });
-    card.addEventListener("contextmenu", (event) => { event.preventDefault(); openGameOptions(card); });
 
     cardsByID.set(g.id, card);
   }
@@ -331,7 +338,7 @@ controllerInit({
   getBarButtons: () => [...document.querySelectorAll(".topbar .btn")],
   onActivateCard: (card) => {
     const id = card?.dataset?.id;
-    if (id) Launch(id).catch(console.error);
+    if (id) launchFromLibrary(id);
   },
 });
 

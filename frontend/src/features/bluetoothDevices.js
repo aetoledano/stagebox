@@ -83,6 +83,7 @@ function render() {
   }
   for (const device of devices) content.append(deviceCard(device,true));
   const closeButton = action("Close", () => close(), "close", "footer"); closeButton.disabled = removing;
+  closeButton.classList.add("dialog-close");
   footer.append(closeButton);
 }
 async function load() {

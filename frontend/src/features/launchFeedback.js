@@ -47,7 +47,7 @@ function showError(payload) {
   overlay.classList.add("launch-feedback-error");
   close.hidden = false;
   close.disabled = false;
-  close.textContent = "OK";
+  close.textContent = "Close";
   hint.hidden = true;
   actions.hidden = true;
   overlay.hidden = false;
@@ -184,7 +184,7 @@ export function initLaunchFeedback(onDismiss, resolvePresentation = () => null) 
       <p id="launch-feedback-message" role="status" aria-live="polite"></p>
       <div class="launch-feedback-indeterminate" aria-hidden="true"><span></span></div>
       <progress class="launch-feedback-progress" max="100" aria-label="Game update progress" hidden></progress>
-      <button type="button" class="btn gp-focus" hidden>OK</button>
+      <button type="button" class="dialog-close gp-focus" hidden>Close</button>
       <div class="launch-feedback-actions" hidden></div>
       <p class="launch-feedback-update-hint" hidden></p>
     </div>

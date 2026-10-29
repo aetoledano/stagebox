@@ -15,6 +15,7 @@ type SteamGuideUI struct {
 func NewSteamGuideMonitor(string) (*SteamGuideMonitor, error) {
 	return nil, fmt.Errorf("Steam guide UI requires Windows")
 }
-func (*SteamGuideMonitor) Close()                           {}
-func (*SteamGuideMonitor) Poll() (SteamGuideUI, error)      { return SteamGuideUI{}, nil }
-func (*SteamGuideMonitor) HideMinimized(SteamGuideUI) error { return nil }
+func (*SteamGuideMonitor) Close()                                         {}
+func (*SteamGuideMonitor) Poll() (SteamGuideUI, error)                    { return SteamGuideUI{}, nil }
+func (*SteamGuideMonitor) HideMinimized(SteamGuideUI) error               { return nil }
+func (*SteamGuideMonitor) BackgroundForControllerTest(SteamGuideUI) error { return nil }
