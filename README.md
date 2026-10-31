@@ -27,14 +27,15 @@ games. This is a visual preview, not a Windows screenshot.*
 - **Make it your gaming space.** Use StageBox as a regular app, or set up a
   dedicated living-room PC or arcade cabinet with its optional Windows kiosk mode.
 
+## Download StageBox
+
+**[Download StageBox for Windows](https://github.com/aetoledano/stagebox/releases)**
+
+For **Windows 10/11 x64**. Open a release's **Assets** and download
+`stagebox-<version>-windows-x64.zip`. The bundle includes the launcher and its
+matching controller helper.
+
 ## Get started
-
-StageBox is an early project for **Windows 10/11 x64**. Look for a Windows bundle
-on the [Releases page](https://github.com/aetoledano/stagebox/releases). If a bundle
-isn't available yet, you can [build one on Linux](docs/development.md) and copy
-it to your gaming PC.
-
-With a Windows bundle ready:
 
 1. Unpack the complete bundle into a folder on your Windows PC.
 2. Follow the [quick setup](docs/installation.md) to choose your games folder.

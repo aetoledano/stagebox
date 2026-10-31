@@ -1,5 +1,10 @@
 # Project Guide
 
+## Published release downloads (October 31, 2026)
+
+- Owner confirms release files were published correctly, exercising the release-event asset attachment beyond the earlier build-only runs. README now has a dedicated Download StageBox section linking to https://github.com/aetoledano/stagebox/releases and identifying the Windows x64 ZIP under Assets. Removed the obsolete conditional wording about bundles not yet being available; the short setup steps remain directly below. Use the releases listing so pre-releases are discoverable without relying on a latest-release redirect or hard-coded version.
+- This is a documentation-only update; no tests run. Owner explicitly requested uploading the README and guide update to main.
+
 ## Release preparation update (October 31, 2026)
 
 - Owner explicitly requested pushing all pending Docker-build support and documentation to main. Removed unresolved image-origin commentary from docs/ARTWORK.md, THIRD_PARTY_NOTICES.md, the publishing checklist and this guide. Retain the asset inventory, generation records, brand identification and known upstream license/attribution notices.
