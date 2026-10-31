@@ -5,6 +5,7 @@ node_modules/
 /frontend/package.json.md5
 /release/
 /sbrelease/
+/output/
 /tools/hidmaestro/obj/
 /tools/hidmaestro/bin/
 

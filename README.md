@@ -45,15 +45,18 @@ walks through that. Start with the regular app setup first.
 
 ## Make it yours
 
-| What would you like to do? | Guide |
+| Preview | Make it yours |
 | --- | --- |
-| Learn the controls | [Your first session](docs/getting-started.md) |
-| Add games outside Steam | [Your game library](docs/game-library.md) |
-| Set up or remap a controller | [Controllers](docs/features/controllers.md) |
-| Use Xbox-style input | [Virtual Xbox input](docs/features/virtual-input.md) |
-| Find Steam games and handle updates | [Steam](docs/features/steam.md) |
-| Open your retro collection | [RetroBat](docs/features/retrobat.md) |
-| Pair devices, change sound or connect Wi-Fi | [Settings](docs/features/settings.md) |
+| [<img src="docs/images/feature-first-session.png" alt="Browse the library with a controller" width="220">](docs/getting-started.md) | **Learn the controls**<br>[Your first session](docs/getting-started.md) |
+| [<img src="docs/images/feature-game-library.png" alt="A local game folder becomes a library card" width="220">](docs/game-library.md) | **Add games outside Steam**<br>[Your game library](docs/game-library.md) |
+| [<img src="docs/images/feature-controllers.png" alt="Controller mapping and input diagnostics" width="220">](docs/features/controllers.md) | **Set up or remap a controller**<br>[Controllers](docs/features/controllers.md) |
+| [<img src="docs/images/feature-virtual-input.png" alt="Virtual Xbox input in Game Options" width="220">](docs/features/virtual-input.md) | **Use Xbox-style input**<br>[Virtual Xbox input](docs/features/virtual-input.md) |
+| [<img src="docs/images/feature-steam.png" alt="Steam update choices in StageBox" width="220">](docs/features/steam.md) | **Find Steam games and handle updates**<br>[Steam](docs/features/steam.md) |
+| [<img src="docs/images/feature-retrobat.png" alt="Open RetroBat and return to StageBox" width="220">](docs/features/retrobat.md) | **Open your retro collection**<br>[RetroBat](docs/features/retrobat.md) |
+| [<img src="docs/images/feature-settings.png" alt="Separate Sound, Bluetooth and Wi-Fi settings previews" width="220">](docs/features/settings.md) | **Pair devices, change sound or connect Wi-Fi**<br>[Settings](docs/features/settings.md) |
+
+*Illustrative previews with example data. Diagrams and the settings montage explain
+separate actions/screens; click a preview to open its guide.*
 
 Looking for something else? Visit the [documentation hub](docs/README.md),
 check [troubleshooting](docs/troubleshooting.md), or [tell us what happened](https://github.com/aetoledano/stagebox/issues).

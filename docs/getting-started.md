@@ -2,6 +2,10 @@
 
 [Documentation](README.md) · [StageBox](../README.md)
 
+![Browse the library with a controller](images/feature-first-session.png)
+
+*Guide illustration with fictional example games; annotations are not app controls.*
+
 Once StageBox is running on Windows, connect a controller and pick a game. [Installed Steam games](features/steam.md) appear automatically; [other local games](game-library.md) need a small launch file.
 
 1. Open StageBox and let your library load.

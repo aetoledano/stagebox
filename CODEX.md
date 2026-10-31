@@ -1,5 +1,13 @@
 # Project Guide
 
+## Feature previews and ignored output (October 30, 2026)
+
+- README's Make it yours links now each have a clickable 220px preview; the same image opens its matching guide. Seven documentation PNGs under `docs/images/feature-*.png` cover first-session controls, local-game folders, controller diagnostics/remapping, virtual Xbox input, Steam updates, RetroBat handoff and settings. All are built-in image_gen illustrations with fictional data, labeled in README and guides; diagram annotations and the three-settings montage are not new app controls.
+- Main `docs/images/stagebox-preview.png` uses `frontend/src/assets/images/background-space.png` as its actual wallpaper composition input, retaining the STAGEBOX/PLAY STARTS HERE branding. Keep the proper Tools gear (including in Steam preview); do not use the missing-font square from Linux reference renders.
+- `docs/images/feature-previews-prompts.md` records all feature-generation prompts, the wallpaper pass and Steam gear correction; `docs/ARTWORK.md` inventories the new documentation assets separately from runtime images. Real dialog layout references were captured from the existing built frontend through temporary example-data fixtures outside Git. No production code or runtime images were changed.
+- `/output/` is ignored and untracked per owner instruction. Its local SN30 Pro+ override example is preserved on disk; old references in historical notes below do not mean it is a distributed source file. Do not add output artifacts back to Git. Existing Git history is preserved.
+- Verification: visually reviewed all eight final documentation images (main plus seven feature previews), including the correct Tools gear and real dialog labels. All 133 local documentation links/image targets/anchors and Git whitespace checks pass; `git ls-files output` is empty and the local override remains on disk. No tests run; only documentation imagery, Markdown and ignore/tracking state changed.
+
 ## User documentation and preview (October 30, 2026)
 
 - `README.md` is the short user-facing introduction: controller-first library, automatic installed Steam games, Steam/RetroBat shortcuts, everyday settings and condensed Windows setup. Keep tool installation, config schemas, controller/backend limits and session internals in `docs/`.
@@ -21,7 +29,7 @@
 ### Active artwork cleanup (October 30, 2026)
 
 - Per the owner, remove artwork not actually used by the launcher/build. Source tracing identified 12 retained images through JS imports, CSS URLs, HTML, Go embed and Makefile inputs; removed 19 unused image/font/license/preview/prompt files (8.84 MiB). No active asset was replaced or redesigned.
-- Consolidated generation prompts for the active Space Launch wallpapers and XInput wordmark into `docs/ARTWORK.md`. Keep the SN30 Pro+ mapping example under output; it is unrelated to artwork cleanup. Removed unused Nunito packaging from `tools/package_notices.py`; include the artwork inventory in releases beside notices.
+- Consolidated generation prompts for the active Space Launch wallpapers and XInput wordmark into `docs/ARTWORK.md`. The SN30 Pro+ mapping example remains local under ignored output after the owner's follow-up cleanup; it is no longer tracked. Removed unused Nunito packaging from `tools/package_notices.py`; include the artwork inventory in releases beside notices.
 - Preserve Git history as requested: deleted artwork remains available in old commits. Earlier verification notes mentioning removed alternatives are historical. No tests run; ask the owner to check library/loading backgrounds, app icon, topbar icons, card control badges, virtual-input wordmark and controller diagrams on Windows.
 - Cleanup verification: frontend production build passes with all active imports preserved; packaging copied 47 notice/inventory files into `/tmp/stagebox-public-notices-without-font`; all 12 retained image filenames have source/build references. Git whitespace checks pass. No tests or Windows runtime checks run.
 
@@ -52,7 +60,7 @@ The project is Windows-focused at runtime, but many platform-specific tools have
 - `steam.go`: Wails-bound `OpenSteam` action, installed-Steam client session flow, card config/internet/update preflight, ID/phase-checked `SteamLaunchAction` update choices and `SteamUpdateStates` polling API, executable discovery wrapper, and installer download/start helpers, including the installer URL. Shared Steam discovery lives in `internal/games`; `focusAfterSteamSession` settles native foreground ownership after both Steam game card and topbar Big Picture sessions.
 - `retrobat.go`: Wails-bound `OpenRetroBat`, installed frontend session handoff, and Steam-style official installer download/start helpers. Shared install discovery and native session tracking live in `internal/games/retrobat_*`.
 - `assets`: root-level project assets. `loading-space.png` is the embedded Space Launch native fallback wallpaper; `app-icon.png` is the default StageBox executable icon source. Unused alternatives and legacy sources were removed during public-repository cleanup.
-- `output`: retains the verified SN30 Pro+ mapping example only. Unused design previews, duplicate wallpaper and old prompts were removed; prompts for active generated artwork were consolidated into `docs/ARTWORK.md`.
+- `output`: ignored local scratch/output directory, not part of the tracked source. Existing local mapping examples are preserved; do not commit this directory. Active runtime-art prompts are in `docs/ARTWORK.md`, and public documentation images/prompts are under `docs/images`.
 - `docs/ARTWORK.md`: inventory of all 12 retained runtime/build images, known origins and generation prompts. The unused Nunito font was removed; the UI uses system fonts. Earlier image/icon design notes in this guide describe history, not additional current assets.
 - `build/appicon.png`: ignored Wails executable icon input. The Makefile `app-icon` target copies it from `APP_ICON` (default `assets/app-icon.png`) before Wails builds, then Wails regenerates the Windows icon resource during `make build-win`/`make release`.
 - `internal/assets`: runtime asset helpers, including embedded asset extraction, thumbnail cache path, and Wails thumbnail HTTP handler.

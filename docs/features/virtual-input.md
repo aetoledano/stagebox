@@ -2,6 +2,10 @@
 
 [Documentation](../README.md) · [StageBox](../../README.md)
 
+![Virtual Xbox input in Game Options](../images/feature-virtual-input.png)
+
+*Illustrative preview with example data, based on the current interface.*
+
 Some games work best with an Xbox controller. StageBox can present a compatible non-XInput pad as a virtual Xbox controller, using the default you save for that controller.
 
 This is optional and needs one-time driver setup plus administrator approval for virtual-device sessions. Start with [controller settings](controllers.md) and the [Windows installation guide](../installation.md).

@@ -2,6 +2,10 @@
 
 [Documentation](../README.md) · [StageBox](../../README.md)
 
+![Controller mapping and input diagnostics](../images/feature-controllers.png)
+
+*Illustrative preview with example data, based on the current interface.*
+
 Connect your controller and use the D-pad or left stick to browse. Tap A to launch a selected game; hold A on a local-game card for its input options. Use **Tools → Controllers** for saved defaults, mapping and diagnostics.
 
 Choose **Native** when your games already support the controller, or **Virtual Xbox** when they need Xbox-style input. See [Virtual Xbox input](virtual-input.md) for setup and limits.

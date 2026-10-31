@@ -2,6 +2,10 @@
 
 [Documentation](README.md) · [StageBox](../README.md)
 
+![A local game folder becomes a library card](images/feature-game-library.png)
+
+*Guide illustration with fictional example games; annotations are not app controls.*
+
 Installed Steam games appear automatically. For other Windows games, add a small `lc.json` file alongside each game to tell StageBox what to launch and which cover to show.
 
 StageBox scans the immediate subfolders under `gamesRoot`. Each game folder must contain an `lc.json` file.

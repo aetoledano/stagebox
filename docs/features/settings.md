@@ -2,6 +2,10 @@
 
 [Documentation](../README.md) · [StageBox](../../README.md)
 
+![Separate Sound, Bluetooth and Wi-Fi settings previews](../images/feature-settings.png)
+
+*Illustrative montage of separate Sound, Bluetooth and Wi-Fi screens with example data.*
+
 Open the gear-shaped **Tools** button in the top bar to reach everyday settings.
 The library's game cards remain inactive while a settings dialog is open.
 

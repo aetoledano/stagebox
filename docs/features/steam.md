@@ -2,6 +2,10 @@
 
 [Documentation](../README.md) · [StageBox](../../README.md)
 
+![Steam update choices in StageBox](../images/feature-steam.png)
+
+*Illustrative preview with example data, based on the current interface.*
+
 Your installed Steam games join the StageBox library automatically, including games on other Steam library drives. Pick a game from the same grid as your other games, or use the Steam button for Big Picture.
 
 After installing or removing a Steam game, choose **Tools → Reload Games**. Steam still handles sign-in, updates and first-run setup. Direct Steam game-card launches currently require internet access.

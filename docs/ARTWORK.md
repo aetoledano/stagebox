@@ -39,10 +39,32 @@ temporary documentation fixture. Its game names/covers and device status are
 fictional examples. It depicts the current layout with Windows-style status
 glyphs, but is an AI-assisted illustration rather than a Windows screenshot.
 The owner requested a follow-up correction replacing the top-right fallback
-square with the proper Tools gear icon. The final prompt and correction are
-recorded in `docs/images/stagebox-preview-prompt.md` in the source repository.
-The image and prompt are documentation-only and are not embedded in the app or
-included in the Windows binary bundle.
+square with the proper Tools gear icon. A later composition pass uses the actual
+`frontend/src/assets/images/background-space.png` as its wallpaper input. The
+original prompt/correction are in `docs/images/stagebox-preview-prompt.md`; the
+wallpaper pass and new feature prompts are in `docs/images/feature-previews-prompts.md`.
+The images and prompts are documentation-only and are not embedded in the app
+or included in the Windows binary bundle.
+
+## Feature guide previews
+
+Seven built-in image_gen illustrations accompany the README's Make it yours
+links and their detailed guides:
+
+| File under `docs/images/` | Purpose / reference |
+| --- | --- |
+| `feature-first-session.png` | Controller navigation legend alongside the example library |
+| `feature-game-library.png` | Local game folder/launch-file to library-card diagram; no in-app import wizard |
+| `feature-controllers.png` | Real rendered controller diagnostics panel with illustrative input highlights |
+| `feature-virtual-input.png` | Real rendered native Game Options toggle |
+| `feature-steam.png` | Real rendered Steam update choices; fictional game art; corrected Tools gear |
+| `feature-retrobat.png` | Symbolic external-frontend handoff and return; not an invented RetroBat screenshot |
+| `feature-settings.png` | Montage based on separate actual Sound, Bluetooth and Wi-Fi dialogs |
+
+The native-dialog references were captured with temporary example-data fixtures
+outside the repository; no production Windows backend or hardware was run.
+All previews are labeled illustrative. They retain existing product/brand
+identification and use fictional game art rather than downloaded game covers.
 
 ## Space Launch loading wallpaper generation prompt
 

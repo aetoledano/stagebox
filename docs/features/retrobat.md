@@ -2,6 +2,10 @@
 
 [Documentation](../README.md) · [StageBox](../../README.md)
 
+![Open RetroBat and return to StageBox](../images/feature-retrobat.png)
+
+*Guide illustration with fictional example games; annotations are not app controls.*
+
 Open RetroBat from the top bar, play through its EmulationStation library, then quit RetroBat to return to StageBox. RetroBat manages the emulators, ROMs and its own controller settings. StageBox opens the frontend rather than importing ROMs into its game grid.
 
 ## Setup and session behavior
