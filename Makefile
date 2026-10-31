@@ -76,6 +76,8 @@ release: build-win
 	@cp custom_scripts/svc.vbs "$(RELEASE_DIR)/svc.vbs"
 	@cp custom_scripts/systemsvcs.ps1 "$(RELEASE_DIR)/systemsvcs.ps1"
 	@cp custom_scripts/elevated-PS.cmd "$(RELEASE_DIR)/elevated-PS.cmd"
+	@cp config.example.json "$(RELEASE_DIR)/config.example.json"
+	@"$(PYTHON)" tools/package_notices.py "$(RELEASE_DIR)"
 	@echo "→ Release bundle contents:"
 	@ls -lh "$(RELEASE_DIR)"
 

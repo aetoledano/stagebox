@@ -1,14 +1,32 @@
-build
-node_modules
-frontend/dist
-release
-sbrelease
-
-*.log
-
-/cache/
-
-new_features
-
+# Build outputs and downloaded helper dependencies
+/build/
+node_modules/
+/frontend/dist/
+/frontend/package.json.md5
+/release/
+/sbrelease/
 /tools/hidmaestro/obj/
 /tools/hidmaestro/bin/
+
+# Local runtime configuration, controller identities and recovery state
+/config.json
+/controllers.json
+/gamecontrollerdb.txt
+/assets/controllers.json
+/assets/gamecontrollerdb*.txt
+/assets/hidhide-session.json
+/cache/
+*.log
+*.log.previous
+
+# Local secrets and development scratch space
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+/new_features
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

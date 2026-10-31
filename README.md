@@ -4,6 +4,8 @@ StageBox is a fullscreen Windows game launcher built with Wails, Go, and a Vite-
 
 The project can be inspected and partially built on Linux, but the production runtime is Windows-focused because shell registration, Bluetooth pairing, Wi-Fi management, XInput, fullscreen restoration, shutdown, restart, and wallpaper hosting all use Windows APIs or Windows tools.
 
+StageBox is pre-1.0 software. Start with a portable setup before configuring the optional kiosk shell. See [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), and [third-party notices](THIRD_PARTY_NOTICES.md).
+
 ## Features
 
 - Fullscreen game library with cached cover thumbnails.
@@ -37,7 +39,7 @@ The project can be inspected and partially built on Linux, but the production ru
 ### Development
 
 - Go matching the version in `go.mod`.
-- Node.js and npm for the Vite frontend.
+- Node.js 22.12+ and npm for the Vite frontend.
 - Wails v2 CLI.
 - Windows build tooling when building on Windows.
 - MinGW-w64 when cross-building the Windows executable from Linux.
@@ -57,15 +59,20 @@ See [Microsoft's Fedora instructions](https://learn.microsoft.com/en-us/dotnet/c
 Clone the repository and install frontend dependencies:
 
 ```sh
-git clone <repo-url>
-cd launcher
-npm --prefix frontend install
+git clone https://github.com/aetoledano/stagebox.git
+cd stagebox
+npm --prefix frontend ci
+cp config.example.json config.json
 ```
+
+Edit `config.json` to set your local games directory. This file is ignored by Git;
+`config.example.json` is the shared template. In PowerShell, use
+`Copy-Item config.example.json config.json` instead of `cp`.
 
 Install the Wails CLI if it is not already available:
 
 ```sh
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
 ```
 
 Build the Windows release bundle:
@@ -83,6 +90,9 @@ The release bundle is written to `release/` and includes:
 - `svc.vbs`
 - `systemsvcs.ps1`
 - `elevated-PS.cmd`
+- `config.example.json`
+- `LICENSE`, `THIRD_PARTY_NOTICES.md`, and `licenses/` for bundled Go notices
+- `docs/ARTWORK.md` for the active artwork inventory and generation records
 
 For a kiosk installation, move the release bundle to the Windows machine, open PowerShell as Administrator from that folder, and run:
 
@@ -91,6 +101,8 @@ For a kiosk installation, move the release bundle to the Windows machine, open P
 ```
 
 The installer stages files under `C:\launcher`, installs HidHide before shell/task registration, writes a default `config.json` when needed, registers StageBox as the user shell, sets up helper scheduled tasks, and prepares Wi-Fi/Bluetooth services for kiosk use. An existing HidHide installation is preserved. Restart Windows once after a new driver installation; the script never restarts the machine automatically.
+
+Optional Windows automatic logon stores the chosen account password in the Winlogon registry. The installer asks before enabling it; review [Security](SECURITY.md) before configuring a shared machine.
 
 For an existing StageBox installation, run only the driver script from PowerShell as Administrator:
 
@@ -102,7 +114,7 @@ Keep the bundled `HidHide_1.5.230_x64.exe` beside that script or under `assets\h
 
 ## Manual Runtime Setup
 
-If you only want to run the app without installing it as the Windows shell, place `stagebox.exe` in a folder with a `config.json` file:
+To run without installing the Windows shell, place `stagebox.exe` in a folder and keep the matching `assets/hidmaestro/` folder beside it for virtual input. Copy `config.example.json` to `config.json` and edit it, for example:
 
 ```json
 {
@@ -132,6 +144,18 @@ StageBox starts an installed `RetroBat.exe` from its installation folder, pauses
 The Windows session tracks the launched process group, including EmulationStation and inherited emulator children, rather than ending when the bootstrap executable exits or the frontend hides during gameplay. A lingering child/helper keeps the session active until it exits. Processes launched by an unrelated broker, with elevation, or outside the group are not guaranteed to be tracked. If this RetroBat installation is already running outside StageBox, quit it first; StageBox refuses an untracked handoff. Closing StageBox leaves RetroBat running. StageBox's Start+Back game-kill action does not terminate RetroBat; use RetroBat's own exit controls.
 
 This integration launches the RetroBat frontend; it does not import ROM cards. StageBox uses SDL3 for its own controller input. Controllers saved as Virtual Xbox are passed through StageBox’s SDL-to-Xbox bridge for the entire RetroBat session; Native controllers stay native. See Controller Input below.
+
+### Controllers and multiplayer
+
+Choose Native or Virtual Xbox per controller in StageBox. Custom SDL mapping overrides force Virtual Xbox so RetroBat receives the corrected layout. Native XInput pads stay native; the native-game card's virtual-input switch does not apply to RetroBat. Connect the intended controllers before opening RetroBat, because the converted roster stays fixed until the session ends.
+
+The current bridge supports at most four converted pads and requires a free XInput slot for each. Native XInput pads share those four slots: two virtual plus two native XInput pads can fit, but four virtual plus four native XInput pads cannot. Four virtual plus four Native DirectInput/HID pads is a possible configuration to investigate, not verified eight-player support. USB/Bluetooth describes the connection, not the input API.
+
+RetroBat detecting a controller does not guarantee that every emulator supports it or assigns the intended player. Emulator input drivers, player assignments, multitap settings and the game's player limit also matter; see [RetroBat's controller configuration](https://wiki.retrobat.org/controllers/controller-configuration).
+
+StageBox does not set `SDL_JOYSTICK_RAWINPUT` for RetroBat. Enabling Raw Input does not remove this bridge's four-controller limit, and it can expose converted physical pads alongside their replacements because [HidHide cannot block Raw Input](https://docs.nefarius.at/projects/HidHide/FAQ/). Options for supporting more converted controllers remain [development research](CODEX.md#retrobat-controller-routing-and-multiplayer-research).
+
+Known pending issue: RetroBat's emulator-install confirmation can require keyboard input with a Native DirectInput pad, even when that pad navigates the frontend correctly.
 
 ## Game Library Format
 
@@ -333,8 +357,6 @@ While StageBox is idle and focused, a PS/Guide press arms a short monitor for St
 
 The helper stops when the prompt loses focus and restores launcher input when returning. It does not automatically dismiss visible prompts or run firmware updates. Active native games, Steam/RetroBat sessions, controller tests and Bluetooth pairing keep their own input handling. This recovery uses SDL Guide detection and needs verification with your Steam version; external firmware updater applications are outside its Steam-only scope.
 
-RetroBat's emulator-install confirmation can currently require keyboard input with a native DirectInput pad; this remains a low-priority pending issue.
-
 ## How To Use
 
 1. Start StageBox.
@@ -384,7 +406,7 @@ npm --prefix frontend run preview
 
 - `stagebox.log` is written in the launcher's working directory and preserved across restarts. Its absolute path is logged at startup. At startup, logs of at least 8MiB rotate to `stagebox.log.previous`, replacing the previous backup; a single long run can grow beyond that size.
 - Logging always includes DEBUG messages. `config.json`'s `debug` flag controls exit behavior, not log verbosity.
-- For intermittent Steam launch failures, capture the log around `Steam game requested`, `Steam readiness snapshot policy=registered-stable-v3`, `Steam stale registration recovery`, `Steam game startup status`, and `Steam game process exited`. These show registration, client age/access context, recovery results, update flags/counters and native exit status; stable registration does not guarantee successful Steam API initialization or sign-in.
+- For intermittent Steam launch failures, capture the log around `Steam game requested`, `Steam interactive game page requested`, `Steam game startup status`, and `Steam game process exited`. These show activation, update flags/counters and native exit status. Redact local paths, network names and device identifiers before sharing logs.
 - `svc.log` is written by the service/helper scripts on Windows.
 - If no local games appear, check that `config.json` points to a readable `gamesRoot` and that each game folder contains a valid `lc.json`. For missing Steam games, check Steam is installed, the library drive is available, and downloads have finished; reload StageBox and inspect its Steam discovery logs.
 - If a game opens another launcher and StageBox returns too early, try `"trackMode": "processTree"`.
@@ -392,9 +414,11 @@ npm --prefix frontend run preview
 - If the screen is black after shell startup, inspect `stagebox.log` for frontend boot and render markers.
 - For controller problems, inspect `controller backend SDL3 initialized`, `SDL3 controller mappings loaded`, `SDL3 joystick discovered`, `SDL3 gamepad mapping`, `SDL3 gamepad connected/disconnected`, and `controller input device changed` in `stagebox.log`. Joystick discovery includes name, VID/PID and mapped status, even when the device falls back to native input. SDL extraction/load/init/discovery errors log the fallback reason. Check the cache is writable, try the legacy backend, and verify disconnect/reconnect plus game return on the target Windows machine.
 
-## Publishing Notes
+## License
 
-Before making the repository public, add a top-level `LICENSE` file and update this section with the selected license. The bundled Nunito font files include their own SIL Open Font License text under `frontend/src/assets/fonts/OFL.txt`. The Steam vector icon comes from [Simple Icons](https://github.com/simple-icons/simple-icons/blob/develop/icons/steam.svg), distributed under [CC0](https://github.com/simple-icons/simple-icons/blob/develop/LICENSE.md).
+StageBox's original code is licensed under the [GNU General Public License v3.0 only](LICENSE) (`GPL-3.0-only`). Third-party components retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Artwork with incomplete provenance is identified there and needs confirmation before public distribution.
+
+The launcher uses system fonts. Its retained artwork and generation records are listed in [docs/ARTWORK.md](docs/ARTWORK.md). The Steam vector icon comes from [Simple Icons](https://github.com/simple-icons/simple-icons/blob/develop/icons/steam.svg), distributed under [CC0](https://github.com/simple-icons/simple-icons/blob/develop/LICENSE.md).
 
 The bundled [SDL3 runtime](https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18) is distributed under its zlib license, retained at `internal/platform/controller/sdl/windows_amd64/LICENSE.txt` and extracted beside its cached runtime. Release URLs and verified SHA-256 digests are recorded in `internal/platform/controller/sdl/README.md`.
 

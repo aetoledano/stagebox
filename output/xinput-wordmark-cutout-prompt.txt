@@ -1,6 +1,0 @@
-Built-in image_gen tool, local-reference edit, transparent_background=true.
-Source: frontend/src/assets/images/xinput-circle.png
-Final: frontend/src/assets/images/xinput-wordmark.png
-Runtime color: CSS alpha mask filled with var(--accent), currently #22aa77.
-
-Use case: background-extraction. Edit the supplied XInput circular emblem. Keep ONLY the exact 'XInput' wordmark from the bottom: the wide stylized X and the geometric lettering I-n-p-u-t. Preserve that lettering's shapes, proportions, relative heights and horizontal arrangement. Remove the circle, rings, patterns and all four face-button illustrations. Recolor the wordmark a single flat StageBox emerald green #22AA77. No cyan, no neon bloom, no bevels or colored background. Produce clean opaque lettering with crisp antialiased edges on genuine transparent alpha. Reframe it as a tightly cropped wide horizontal logo, approximately 4:1 aspect ratio, with only a small even transparent margin. The lettering should fill almost the entire canvas. Exact text: 'XInput'. This is a compact game-card indicator.
