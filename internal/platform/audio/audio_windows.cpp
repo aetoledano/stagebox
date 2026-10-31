@@ -4,6 +4,8 @@
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <endpointvolume.h>
+// Emit property-key definitions here; Ubuntu's MinGW uuid library omits them.
+#include <initguid.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <cstdlib>
 #include <cmath>

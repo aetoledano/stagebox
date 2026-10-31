@@ -3,6 +3,7 @@
 ## Hosted workflow verification (October 30, 2026)
 
 - The owner explicitly authorized pushing the prepared Go migration/release work to verify GitHub Actions. `release.yml` also supports workflow_dispatch: a manual run on main builds the selected commit with a `check-<run number>-<attempt>` version and retains the ZIP/checksum as an Actions artifact. The release-upload job is gated to release events, so manual verification creates no release/tag and uploads no release assets. The main ancestry check and same Make build/packaging path apply to both triggers.
+- The first hosted run reached Windows linking but Ubuntu's MinGW uuid library did not supply `PKEY_Device_FriendlyName`, unlike the local Fedora toolchain. `internal/platform/audio/audio_windows.cpp` includes `initguid.h` immediately before `functiondiscoverykeys_devpkey.h` to emit the SDK property-key definitions in that translation unit. Keep this include order; audio behavior and the key value are unchanged. Build verification must include the final Windows link, not only compiling the audio package archive. No tests run.
 
 ## One-command Windows bundle (October 30, 2026)
 
