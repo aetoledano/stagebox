@@ -29,9 +29,10 @@ games. This is a visual preview, not a Windows screenshot.*
 
 ## Get started
 
-StageBox is an early project for **Windows 10/11 x64**. Public Windows downloads
-are not available yet. You can [build a Windows bundle on Linux](docs/development.md)
-and copy it to your gaming PC.
+StageBox is an early project for **Windows 10/11 x64**. Look for a Windows bundle
+on the [Releases page](https://github.com/aetoledano/stagebox/releases). If a bundle
+isn't available yet, you can [build one on Linux](docs/development.md) and copy
+it to your gaming PC.
 
 With a Windows bundle ready:
 

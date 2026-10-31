@@ -1,0 +1,28 @@
+WELCOME TO STAGEBOX
+
+Quick Windows setup
+1. Extract the complete ZIP into a folder. Keep assets/hidmaestro beside stagebox.exe.
+2. Copy config.example.json to config.json and set gamesRoot to your games folder.
+   Leave debug set to true when running StageBox as a regular app.
+3. Run stagebox.exe from that folder. Installed Steam games appear automatically.
+   Use the D-pad/stick to browse, then tap A (or use arrows and Enter) to play.
+
+Requires Windows 10/11 x64 and Microsoft Edge WebView2 Runtime.
+Windows users do not need Go, Node.js, Python or the .NET SDK.
+
+Optional virtual Xbox input
+Run install-hidhide.ps1 from an Administrator PowerShell window in this folder.
+Restart Windows after a new driver installation. Virtual sessions may request UAC.
+Keep the helper directory matched to the executable from the same bundle.
+
+Optional dedicated kiosk setup
+Try regular app mode first. For a dedicated PC/cabinet, run install-stagebox.ps1
+from an Administrator PowerShell window. It can replace your Windows shell;
+automatic logon is optional. Read the full setup guide before choosing it.
+
+Setup and feature guides: https://github.com/aetoledano/stagebox/tree/main/docs
+WebView2: https://developer.microsoft.com/microsoft-edge/webview2/
+Issues: https://github.com/aetoledano/stagebox/issues
+
+BUILD-INFO.json identifies this bundle's version and exact source commit.
+Keep LICENSE, THIRD_PARTY_NOTICES.md and licenses/ with the bundle.

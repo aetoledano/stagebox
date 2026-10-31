@@ -16,18 +16,21 @@ lists StageBox's requirements rather than maintaining package-manager recipes.
 | --- | --- | --- |
 | Git | Clone and manage the source | [Git on Linux](https://git-scm.com/install/linux) |
 | GNU Make | Run the project build and release targets | [GNU Make](https://www.gnu.org/software/make/) |
-| Go matching `go.mod` (currently 1.25.0) | Compile the backend and install/use the Wails CLI | [Go installation](https://go.dev/doc/install) |
+| Go 1.27 (preferred toolchain **1.27.3**, declared in `go.mod`) | Compile the backend and install/use the Wails CLI | [Go installation](https://go.dev/doc/install) |
 | Node.js 22.12+ and npm | Install/build frontend assets invoked by Wails | [Node.js downloads and installation](https://nodejs.org/en/download) |
-| Wails CLI **v2.11.0** | Build the Go/WebView desktop application and generate bindings | [Wails v2 installation](https://v2.wails.io/docs/gettingstarted/installation/) |
+| Wails CLI **v2.17.0** | Build the Go/WebView desktop application and generate bindings | [Wails v2 installation](https://v2.wails.io/docs/gettingstarted/installation/) |
 | MinGW-w64 C and C++ cross-compilers | Compile Windows CGO/C++ integrations from Linux | [MinGW-w64 toolchains](https://www.mingw-w64.org/downloads/), [Fedora guide](https://www.mingw-w64.org/getting-started/fedora/) |
 | Python 3.11+ | Prepare pinned helper dependencies and package notices | [Python on Unix](https://docs.python.org/3/using/unix.html) |
 | .NET **SDK 10+** | Publish the self-contained Windows virtual-controller helper | [.NET on Linux](https://learn.microsoft.com/en-us/dotnet/core/install/linux) |
 | Linux Wails dependencies | Support the Wails toolchain and local Linux development view | [Wails Linux prerequisites](https://v2.wails.io/docs/gettingstarted/installation/#platform-specific-dependencies) |
 
-Keep the Wails CLI matched to the v2.11.0 dependency in `go.mod`. Upstream
+Keep the Wails CLI matched to the v2.17.0 dependency in `go.mod`. Upstream
 installation guides may suggest the latest version; StageBox has not migrated
 to Wails v3. The .NET **SDK** is required on Linux; the runtime alone cannot
 compile the helper. Windows users receive its self-contained runtime.
+After upgrading Go, also update the separately installed Wails CLI: the old
+v2.11.0 package loader fails during binding generation on Go 1.27. This migration
+stays on Wails v2 and refreshes the vendored dependencies and generated bindings.
 
 The default cross-compilers are `x86_64-w64-mingw32-gcc` and
 `x86_64-w64-mingw32-g++`. The audio bridge uses C++, so a C-only toolchain is
@@ -47,8 +50,9 @@ make release
 
 `make virtual-helper-deps` checks Python and the selected .NET SDK without
 downloading helper assets. `make release` builds the helper and Windows app,
-then assembles the deployable directory at `release/`. Copy the complete bundle
-to Windows and follow [Windows setup](installation.md).
+then assembles the deployable directory at `release/` and the downloadable
+Windows ZIP/checksum under `build/release-assets/`. Copy the complete folder or
+extract the ZIP on Windows and follow [Windows setup](installation.md).
 
 Initial builds require internet access for the pinned HIDMaestro SDK, HidHide
 installer, .NET restore and frontend packages. Downloaded helper binaries,
@@ -89,7 +93,7 @@ documentation fixture supplies them. Commit `frontend/package.json` and
 | Command | Result |
 | --- | --- |
 | `make` / `make build-win` | Build the paired helper, then `build/bin/stagebox.exe` |
-| `make release` | Recreate `release/` with executable, helper, setup scripts, example config and notices |
+| `make release` | Recreate `release/`, then generate the Windows ZIP and checksum in `build/release-assets/` |
 | `make virtual-helper-deps` | Check Python/.NET helper prerequisites |
 | `make virtual-helper` | Publish `build/bin/assets/hidmaestro/` and refresh the embedded integrity manifest |
 | `make help` | Show build prerequisites and supported tool-path overrides |
@@ -101,8 +105,9 @@ Linux development views are useful for frontend work; they do not establish
 that Windows platform behavior works. The runtime reads local `config.json`;
 copy `config.example.json` and edit its path if running a development view.
 
-Supported Make overrides include `DOTNET`, `PYTHON`, `MINGW`, `WIN_CC`, `WIN_CXX`,
-`APP_ICON`, `WAILS_TAGS`, `GO_BUILD_CACHE` and `RELEASE_DIR`. For example,
+Supported Make overrides include `APP_VERSION`, `DOTNET`, `PYTHON`, `MINGW`, `WIN_CC`, `WIN_CXX`,
+`APP_ICON`, `WAILS_TAGS`, `GO_BUILD_CACHE`, `RELEASE_DIR`, `RELEASE_ASSETS_DIR` and
+`SOURCE_COMMIT`. For example,
 `make DOTNET=/absolute/path/to/dotnet` selects an existing SDK. Do not depend on
 temporary SDK paths from another developer's session.
 
@@ -133,5 +138,30 @@ aligned with bound Go methods, and avoid unrelated vendor edits. Update user
 guides for visible behavior and CODEX for architecture/build changes. Keep
 local config, device profiles, logs and recovery journals out of commits.
 
-GitHub Actions is deferred. A Windows release-build workflow is planned for
-later work; this documentation change does not introduce automation.
+## Automatic release bundles
+
+`.github/workflows/release.yml` runs the Linux cross-build when a GitHub release
+is published from a tag whose commit belongs to `main`. It pins Go from `go.mod`,
+Node 22, .NET SDK 10, and Wails v2.17.0; drafts and ordinary pushes do not trigger
+it. A manual **Run workflow** on `main` verifies the build and saves an Actions
+artifact without creating or uploading to a release. See [publishing](publishing.md)
+for release steps, manual verification and recovery guidance.
+
+`make release APP_VERSION=v0.43` embeds that version in the Windows app's startup
+log without editing `main.go` and creates `stagebox-v0.43-windows-x64.zip` plus
+its `.zip.sha256` file. Plain `make release` uses the version declared in
+`main.go`, currently `0.42`. It also writes `BUILD-INFO.json` into the staged
+folder and ZIP. No separate packaging command is required locally or in CI.
+
+The packaging script can also be invoked directly for an already-built,
+matching staging directory:
+
+```sh
+python3 tools/package_release.py --version v0.43 --source-commit "$(git rev-parse HEAD)"
+```
+
+It validates the release files and every helper manifest hash, rejects local
+runtime config/logs, and creates the ZIP/checksum. Use the same version for the
+build and any manual repackaging. `SOURCE_COMMIT` defaults to Git HEAD; supply
+the exact commit explicitly when building from a source archive without `.git`.
+Neither `make release` nor the workflow runs tests.

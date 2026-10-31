@@ -1,10 +1,13 @@
 APP ?= stagebox
+APP_VERSION ?=
 APP_ICON ?= assets/app-icon.png
 MINGW  ?= x86_64-w64-mingw32
 WIN_CC ?= $(MINGW)-gcc
 WIN_CXX?= $(MINGW)-g++
 WAILS_TAGS ?= webkit2_41
 RELEASE_DIR ?= release
+RELEASE_ASSETS_DIR ?= build/release-assets
+SOURCE_COMMIT ?= $(shell git rev-parse HEAD)
 GO_BUILD_CACHE ?= /tmp/launcher-go-build
 DOTNET ?= dotnet
 PYTHON ?= python3
@@ -13,12 +16,13 @@ default: build-win
 
 .PHONY: help
 help:
-	@echo "StageBox Windows build: make (or make build-win); staging bundle: make release"
+	@echo "StageBox Windows build: make (or make build-win); complete bundle + ZIP/checksum: make release"
 	@echo "Build tools: Go, Node/npm, Wails v2, MinGW-w64, Python 3.11+, .NET SDK 10+"
 	@echo "Check helper prerequisites: make virtual-helper-deps"
 	@echo "Fedora .NET SDK installation: sudo dnf install dotnet-sdk-10.0"
 	@echo "Use an existing SDK: make DOTNET=/absolute/path/to/dotnet"
 	@echo "Windows runtime users do not need to install .NET; it is bundled."
+	@echo "Release version override: make release APP_VERSION=v0.43 (otherwise keep the source version)."
 
 .PHONY: dev
 dev:
@@ -38,7 +42,7 @@ app-icon:
 build-win: app-icon virtual-helper
 	@echo "→ Building Windows amd64 .exe with Wails…"
 	@GOCACHE=$(GO_BUILD_CACHE) CGO_ENABLED=1 CC=$(WIN_CC) CXX=$(WIN_CXX) GOOS=windows GOARCH=amd64 \
-		wails build -platform windows/amd64
+		wails build -platform windows/amd64 $(if $(APP_VERSION),-ldflags "-X main.appVersion=$(APP_VERSION)")
 	@echo "→ Output:"
 	@ls -lh build/bin/stagebox.exe 2>/dev/null || true
 
@@ -77,7 +81,10 @@ release: build-win
 	@cp custom_scripts/systemsvcs.ps1 "$(RELEASE_DIR)/systemsvcs.ps1"
 	@cp custom_scripts/elevated-PS.cmd "$(RELEASE_DIR)/elevated-PS.cmd"
 	@cp config.example.json "$(RELEASE_DIR)/config.example.json"
+	@cp docs/release-setup.txt "$(RELEASE_DIR)/START-HERE.txt"
 	@"$(PYTHON)" tools/package_notices.py "$(RELEASE_DIR)"
+	@"$(PYTHON)" tools/package_release.py --bundle "$(RELEASE_DIR)" --output "$(RELEASE_ASSETS_DIR)" \
+		$(if $(APP_VERSION),--version "$(APP_VERSION)",) --source-commit "$(SOURCE_COMMIT)"
 	@echo "→ Release bundle contents:"
 	@ls -lh "$(RELEASE_DIR)"
 

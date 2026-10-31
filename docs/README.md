@@ -26,6 +26,6 @@ The main [StageBox page](../README.md) gives a short overview of what the launch
 - [Contributing](../CONTRIBUTING.md): proposing changes and reporting problems.
 - [Architecture](../CODEX.md): source layout, data flow and implementation traps.
 - [Publishing](publishing.md): source history, branch setup, release packaging
-  and the deferred release-build workflow.
+  and the automatic Windows release-build workflow.
 - [Artwork](ARTWORK.md): runtime assets, documentation imagery and provenance.
 - [Security](../SECURITY.md) and [third-party notices](../THIRD_PARTY_NOTICES.md).

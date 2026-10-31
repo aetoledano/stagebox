@@ -5,8 +5,9 @@
 ## What you need
 
 - A Windows 10/11 **x64** PC and your games.
-- A complete StageBox Windows bundle built from this repository. Public binary
-  releases are not available yet; see [building on Linux](development.md).
+- A complete Windows bundle from [StageBox Releases](https://github.com/aetoledano/stagebox/releases),
+  or one you [build on Linux](development.md). Download `stagebox-<version>-windows-x64.zip`;
+  GitHub's automatic Source code downloads contain source rather than the runnable app.
 - The [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
   Use Microsoft's installation guide if it is missing.
 - A controller or keyboard for the library. Keep a keyboard/mouse available for
@@ -71,6 +72,7 @@ for session behavior, UAC prompts and controller limits.
 
 The generated `release/` directory contains `stagebox.exe`, its matching
 `assets/hidmaestro/` helper, example config, installation/service scripts,
-`LICENSE`, `THIRD_PARTY_NOTICES.md`, `licenses/`, and the artwork inventory.
+`START-HERE.txt`, `BUILD-INFO.json` in packaged ZIPs, `LICENSE`,
+`THIRD_PARTY_NOTICES.md`, `licenses/`, and the artwork inventory.
 Copy the directory contents together. Mixing an executable and helper from
 different builds fails the helper integrity check.
