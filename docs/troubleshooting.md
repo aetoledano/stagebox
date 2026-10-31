@@ -16,6 +16,28 @@ Start with the symptom below. Keep your StageBox version and a short description
 - If the screen is black after shell startup, inspect `stagebox.log` for frontend boot and render markers.
 - For controller problems, inspect `controller backend SDL3 initialized`, `SDL3 controller mappings loaded`, `SDL3 joystick discovered`, `SDL3 gamepad mapping`, `SDL3 gamepad connected/disconnected`, and `controller input device changed` in `stagebox.log`. Joystick discovery includes name, VID/PID and mapped status, even when the device falls back to native input. SDL extraction/load/init/discovery errors log the fallback reason. Check the cache is writable, try the legacy backend, and verify disconnect/reconnect plus game return on the target Windows machine.
 
+## “Virtual controller file changed” after an update
+
+The launcher checks every bundled helper file against hashes embedded in
+`stagebox.exe`. A mismatch blocks virtual-input game launches before the helper
+starts. The helper folder is resolved beside the **running executable**, even
+when a shortcut uses a different working directory.
+
+1. Exit games and StageBox completely before replacing any files.
+2. Extract the complete Windows ZIP into a new, empty folder. Run its
+   `stagebox.exe` directly so an older shortcut cannot select another copy.
+3. Bring over your existing configuration/controller settings if needed, keeping
+   the new ZIP's executable and complete `assets/hidmaestro/` folder together.
+   Avoid merging helper files from different builds or updating a running copy.
+
+If a fresh extraction still fails, record the exact DLL name, the ZIP's
+`BUILD-INFO.json`, and the SHA-256 values of `stagebox.exe` and the reported DLL.
+For example, run PowerShell from the extracted folder:
+
+```powershell
+Get-FileHash .\stagebox.exe, .\assets\hidmaestro\System.Reflection.Emit.Lightweight.dll -Algorithm SHA256
+```
+
 ## Controller and launch guides
 
 - [Controller defaults, mapping and diagnostics](features/controllers.md)

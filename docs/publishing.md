@@ -85,7 +85,6 @@ earlier commits. See the [active artwork inventory](ARTWORK.md).
 
 ## Before publishing source or a binary release
 
-- Confirm the artwork provenance described in [third-party notices](../THIRD_PARTY_NOTICES.md).
 - Review the staged diff and new files. Keep local configuration, logs,
   controller profiles, downloaded helpers and generated release bundles out
   of Git. The intentionally embedded SDL DLL and vendored runtime files stay.

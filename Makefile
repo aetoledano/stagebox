@@ -11,6 +11,8 @@ SOURCE_COMMIT ?= $(shell git rev-parse HEAD)
 GO_BUILD_CACHE ?= /tmp/launcher-go-build
 DOTNET ?= dotnet
 PYTHON ?= python3
+DOCKER ?= docker
+DOCKER_RELEASE_DIR ?= build/docker-release
 
 default: build-win
 
@@ -23,6 +25,7 @@ help:
 	@echo "Use an existing SDK: make DOTNET=/absolute/path/to/dotnet"
 	@echo "Windows runtime users do not need to install .NET; it is bundled."
 	@echo "Release version override: make release APP_VERSION=v0.43 (otherwise keep the source version)."
+	@echo "Reproduce the Ubuntu CI build locally: make release-docker (requires Docker with BuildKit)."
 
 .PHONY: dev
 dev:
@@ -89,6 +92,12 @@ release: build-win
 	@ls -lh "$(RELEASE_DIR)"
 
 sbrelease: release
+
+.PHONY: release-docker
+release-docker:
+	@"$(DOCKER)" build --platform linux/amd64 --file tools/docker/release.Dockerfile \
+		--build-arg APP_VERSION="$(APP_VERSION)" --build-arg SOURCE_COMMIT="$(SOURCE_COMMIT)" \
+		--output "type=local,dest=$(DOCKER_RELEASE_DIR)" .
 
 .PHONY: dep
 dep:

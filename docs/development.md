@@ -59,6 +59,35 @@ installer, .NET restore and frontend packages. Downloaded helper binaries,
 intermediates and output bundles stay under ignored `build/` and `release/`.
 Go source dependencies are vendored in the repository.
 
+## Reproduce the GitHub build with Docker
+
+With [Docker Engine](https://docs.docker.com/engine/install/) and BuildKit available,
+run from the repository root:
+
+```sh
+make release-docker
+# Optional version override, using the same rules as make release:
+make release-docker APP_VERSION=v0.43
+```
+
+This uses Ubuntu 24.04 with Go 1.27.3, Node 22, .NET SDK 10, Wails v2.17.0 and
+the same Ubuntu MinGW/Wails packages as the release workflow. The container calls
+the existing `make release` target. Docker's [local exporter](https://docs.docker.com/build/building/export/)
+writes only the Windows ZIP and checksum to ignored `build/docker-release/`;
+override that path with `DOCKER_RELEASE_DIR`. It copies the working tree,
+including uncommitted source changes, while `.dockerignore` excludes local
+configuration, credentials, caches, existing binaries and Git metadata. No source
+directory is bind-mounted, so generated bindings/helper manifests stay inside
+the build. `SOURCE_COMMIT` is supplied from the host's Git HEAD.
+
+The first build downloads several toolchain images and packages; Docker caches
+those layers for later builds. The source and helper dependencies still need
+internet access. This reproduces the build's Linux userspace and dependencies,
+not GitHub event permissions, artifact uploads or Windows runtime behavior.
+Node 22 and .NET 10 follow their supported patch releases, as in CI; this is not
+a byte-for-byte frozen runner image. Keep this Dockerfile aligned when changing
+the release workflow's tool versions or Ubuntu packages. It runs no tests.
+
 ## How Wails handles the frontend
 
 Wails is the desktop build entry point. The frontend is vanilla JavaScript/CSS
@@ -94,6 +123,7 @@ documentation fixture supplies them. Commit `frontend/package.json` and
 | --- | --- |
 | `make` / `make build-win` | Build the paired helper, then `build/bin/stagebox.exe` |
 | `make release` | Recreate `release/`, then generate the Windows ZIP and checksum in `build/release-assets/` |
+| `make release-docker` | Build with Ubuntu CI dependencies and export ZIP/checksum to `build/docker-release/` |
 | `make virtual-helper-deps` | Check Python/.NET helper prerequisites |
 | `make virtual-helper` | Publish `build/bin/assets/hidmaestro/` and refresh the embedded integrity manifest |
 | `make help` | Show build prerequisites and supported tool-path overrides |

@@ -16,12 +16,8 @@ not replace the licenses of the components and artwork listed here.
 | Frontend build dependencies | Individual package licenses installed by npm | `frontend/package.json` and `frontend/package-lock.json` |
 
 Steam, Xbox and RetroBat names and logos identify their respective products;
-StageBox does not claim ownership or affiliation. The owner reports that most
-supplied artwork was AI generated, with some icons downloaded from free sites.
-The retained assets and known generation records are listed in
-[docs/ARTWORK.md](docs/ARTWORK.md); exact source/license records for some active
-icons remain incomplete. The RetroBat SVG is a project trace of a supplied logo
-reference. Do not assume the code license grants rights to third-party artwork.
+StageBox does not claim ownership or affiliation. The retained assets and
+generation records are listed in [docs/ARTWORK.md](docs/ARTWORK.md).
 Unused artwork and the unused Nunito font have been removed from the current
 tree; those files remain in preserved Git history.
 

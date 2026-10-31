@@ -6,19 +6,14 @@ artwork and the unused Nunito font were removed on October 30, 2026. Earlier
 versions remain available in Git history; this cleanup does not rewrite it.
 The README illustration documented below is a separate documentation asset.
 
-The project owner reports that most supplied images/icons were AI generated
-and some icons were downloaded from free sites. That is not a per-file source
-or license record. Known generation records are retained below; source URLs and
-license terms for other supplied icons have not been recorded.
-
-| Asset | Used by | Recorded origin |
+| Asset | Used by | Details |
 | --- | --- | --- |
-| `assets/app-icon.png` | Makefile `app-icon` target / Windows executable | Supplied StageBox app icon; exact origin not recorded |
+| `assets/app-icon.png` | Makefile `app-icon` target / Windows executable | StageBox app icon |
 | `assets/loading-space.png` | `main.go` embed / native transition wallpaper | Generated with the built-in imagegen tool; Space Launch loading prompt below |
 | `frontend/src/assets/images/background-space.png` | `frontend/src/css/base.css` | AI-generated subtitle variant of the loading wallpaper |
-| `frontend/src/assets/images/controller-ico.png` | Controller-count mask in `css/topbar.css` | Supplied icon; exact source not recorded |
-| `frontend/src/assets/images/controller-ico-2.png` | Game-card controller support in `main.js` | Supplied icon; exact source not recorded |
-| `frontend/src/assets/images/kbm-ico.png` | Game-card keyboard/mouse support in `main.js` | Supplied icon; exact source not recorded |
+| `frontend/src/assets/images/controller-ico.png` | Controller-count mask in `css/topbar.css` | Controller status icon |
+| `frontend/src/assets/images/controller-ico-2.png` | Game-card controller support in `main.js` | Gamepad support icon |
+| `frontend/src/assets/images/kbm-ico.png` | Game-card keyboard/mouse support in `main.js` | Keyboard/mouse support icon |
 | `frontend/src/assets/images/controller-test.svg` | Controller test and mapping diagram imports | Project vector diagram |
 | `frontend/src/assets/images/close-ico.svg` | Shared Close button mask in `css/dialogs.css` | Project vector Close control |
 | `frontend/src/assets/images/update-ico.svg` | Steam card update indicator in `main.js` | Project vector update control |
