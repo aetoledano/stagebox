@@ -1,9 +1,10 @@
 # Launcher artwork
 
-Only artwork referenced by the launcher source or its build is retained in the
-current tree. Unused alternatives, raster references, design previews, duplicate
-loading artwork and the unused Nunito font were removed on October 30, 2026.
-Earlier versions remain available in Git history; this cleanup does not rewrite it.
+Runtime artwork is limited to files referenced by the launcher source or its
+build. Unused alternatives, raster references, design previews, duplicate loading
+artwork and the unused Nunito font were removed on October 30, 2026. Earlier
+versions remain available in Git history; this cleanup does not rewrite it.
+The README illustration documented below is a separate documentation asset.
 
 The project owner reports that most supplied images/icons were AI generated
 and some icons were downloaded from free sites. That is not a per-file source
@@ -29,6 +30,19 @@ Keep these paths synchronized with code imports, CSS URLs, HTML references,
 Go embed directives and Makefile inputs. The frontend uses system fonts; no
 custom font is bundled. Preserve brand identification notices separately from
 StageBox's code license.
+
+## README illustration
+
+`docs/images/stagebox-preview.png` was generated with the built-in image_gen
+tool from a 1920×1080 render of the actual built frontend, populated by a
+temporary documentation fixture. Its game names/covers and device status are
+fictional examples. It depicts the current layout with Windows-style status
+glyphs, but is an AI-assisted illustration rather than a Windows screenshot.
+The owner requested a follow-up correction replacing the top-right fallback
+square with the proper Tools gear icon. The final prompt and correction are
+recorded in `docs/images/stagebox-preview-prompt.md` in the source repository.
+The image and prompt are documentation-only and are not embedded in the app or
+included in the Windows binary bundle.
 
 ## Space Launch loading wallpaper generation prompt
 

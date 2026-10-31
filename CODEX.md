@@ -1,5 +1,14 @@
 # Project Guide
 
+## User documentation and preview (October 30, 2026)
+
+- `README.md` is the short user-facing introduction: controller-first library, automatic installed Steam games, Steam/RetroBat shortcuts, everyday settings and condensed Windows setup. Keep tool installation, config schemas, controller/backend limits and session internals in `docs/`.
+- `docs/README.md` indexes setup, first-session controls, local-game metadata, configuration, troubleshooting and developer/publishing guides. `docs/features/` has dedicated Steam, RetroBat, Controllers, Virtual Xbox, Bluetooth and Settings pages. Preserve existing detailed behavior/reference information there; repair relative links when moving content.
+- `docs/development.md` documents the actual workflow: develop and cross-build Windows x64 entirely on Linux, then validate releases/hardware on Windows. Requirements are a versioned tool table with upstream installation-guide links. Wails v2.11.0 invokes npm/Vite through wails.json (`npm ci`, `npm run build`, `npm run dev`); normal Make/Wails builds need no separate npm bootstrap command. Node/npm remain required tools. Do not present standalone Vite as a working desktop launcher.
+- Root `CONTRIBUTING.md` and `PUBLISHING.md` are short entry points; technical build/release guidance lives in `docs/development.md` and `docs/publishing.md`. Keep root LICENSE/SECURITY/third-party notices discoverable. GitHub Actions/release automation remains deferred by the owner.
+- `docs/images/stagebox-preview.png` is an AI-assisted README illustration based on the real production frontend render, with fictional game art/data and Windows-style glyphs. It is not a Windows runtime screenshot. A targeted follow-up corrected the top-right Tools fallback square to a gear. `docs/images/stagebox-preview-prompt.md` records the built-in image_gen prompt/correction. These documentation assets are not embedded in the launcher or copied into binary bundles; `docs/ARTWORK.md` distinguishes them from the 12 runtime/build images.
+- For reference capture only, a temporary `/tmp/stagebox-readme-preview` fixture supplied window.go/window.runtime mocks to the built frontend in headless Chrome; no production backend, native action, library data or app source was changed. The temporary fixture/browser profile and local server are outside Git. The production frontend build passed; no tests run per owner instruction. All 112 local documentation links/anchors and Git whitespace checks passed; notice packaging also completed. The generated preview and corrected gear were visually reviewed. Public release downloads were checked and none existed at the time of writing.
+
 ## Public repository preparation (October 30, 2026)
 
 - Selected license: GPL-3.0-only. Preserve the original application history; old author metadata, removed artwork and local paths remain in past commits. Public repository/origin: https://github.com/aetoledano/stagebox.git; public default branch main, local development branch develop. Publish with explicit `git push origin develop:main` because the branch names differ. The publication commit retains the original application head and GitHub's license-only initial commit as parents; no force push is needed.
@@ -26,7 +35,8 @@ The project is Windows-focused at runtime, but many platform-specific tools have
 
 ## Main Layout
 
-- `README.md`: public-facing project documentation for GitHub. Keep install, usage, game metadata, feature list, troubleshooting, and publishing/license notes in sync with user-visible behavior.
+- `README.md`: short public introduction for GitHub, preview illustration, user benefits, quick start and links into `docs/`. Detailed feature/setup/build references live in the docs hub; keep both aligned with visible behavior.
+- `docs/README.md`, `docs/installation.md`, `docs/getting-started.md`, `docs/configuration.md`, `docs/game-library.md`, `docs/troubleshooting.md`: user documentation and configuration/metadata references. `docs/features/` owns dedicated feature guides. `docs/development.md` and `docs/publishing.md` own Linux tool requirements, Wails build flow, Windows validation and publication details.
 - `LICENSE`: official GPLv3 text; StageBox original code is designated `GPL-3.0-only` in README and frontend package metadata. Third-party licenses remain separate.
 - `CONTRIBUTING.md`, `SECURITY.md`, `THIRD_PARTY_NOTICES.md`, `PUBLISHING.md`: contributor setup, private vulnerability reporting, bundled component/artwork provenance, and first-push/release procedure. Preserve existing history; old author metadata/local paths remain public with it. Active artwork origins and unresolved per-icon source/license records are inventoried in docs/ARTWORK.md.
 - `.github/ISSUE_TEMPLATE`, `.github/pull_request_template.md`: public bug/feature/PR intake. GitHub Actions is deferred; no workflow is shipped yet. The owner wants a Windows release-build workflow in later work.
